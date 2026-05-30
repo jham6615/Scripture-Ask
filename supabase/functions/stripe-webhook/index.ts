@@ -26,8 +26,8 @@ async function upsertFromSubscription(userId: string, sub: Stripe.Subscription):
   await admin.from('entitlements').upsert(
     {
       user_id: userId,
-      is_premium: PREMIUM_STATUSES.has(sub.status),
       source: 'stripe',
+      is_active: PREMIUM_STATUSES.has(sub.status),
       status: sub.status,
       stripe_customer_id: customerId(sub.customer),
       stripe_subscription_id: sub.id,
@@ -36,7 +36,7 @@ async function upsertFromSubscription(userId: string, sub: Stripe.Subscription):
         : null,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'user_id' },
+    { onConflict: 'user_id,source' },
   );
 }
 
@@ -45,6 +45,7 @@ async function userIdForCustomer(custId: string): Promise<string | null> {
   const { data } = await admin
     .from('entitlements')
     .select('user_id')
+    .eq('source', 'stripe')
     .eq('stripe_customer_id', custId)
     .maybeSingle();
   if (data?.user_id) return data.user_id;

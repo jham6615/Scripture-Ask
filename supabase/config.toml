@@ -11,5 +11,9 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
+# RevenueCat calls this webhook directly (no Supabase JWT); we verify a shared Authorization secret.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
 # create-checkout intentionally keeps verify_jwt = true (the default): it requires a signed-in user,
 # whose JWT supabase.functions.invoke attaches automatically.

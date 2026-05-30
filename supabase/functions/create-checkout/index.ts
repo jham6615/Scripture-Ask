@@ -48,6 +48,7 @@ Deno.serve(async (req) => {
       .from('entitlements')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
+      .eq('source', 'stripe')
       .maybeSingle();
 
     let customerId = ent?.stripe_customer_id ?? undefined;
