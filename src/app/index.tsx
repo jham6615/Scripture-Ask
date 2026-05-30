@@ -1,98 +1,75 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { View, useWindowDimensions } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomSheet, SHEET_COLLAPSED_RATIO, type SheetSnap } from '@/components/bottom-sheet';
+import { ChatHistory } from '@/features/chat/chat-history';
+import { ChatPanel } from '@/features/chat/chat-panel';
+import { SheetHeader } from '@/features/chat/sheet-header';
+import { ReaderScreen } from '@/features/reader/reader-screen';
+import { buildQuestionPrompt, formatReference } from '@/features/selection/actions';
+import { useChatStore } from '@/store/chat-store';
+import { useSelectionStore } from '@/store/selection-store';
+import { useSubscriptionStore } from '@/store/subscription-store';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function ReaderRoute() {
+  const { height } = useWindowDimensions();
+  const peek = height * SHEET_COLLAPSED_RATIO;
+  const router = useRouter();
+
+  const selection = useSelectionStore((s) => s.selection);
+  const send = useChatStore((s) => s.send);
+  const hasMessages = useChatStore((s) => s.messages.length > 0);
+  const hasSelection = !!selection && selection.verses.length > 0;
+  const hydrateSubscription = useSubscriptionStore((s) => s.hydrate);
+
+  // Restore premium status + today's usage on launch.
+  useEffect(() => {
+    hydrateSubscription();
+  }, [hydrateSubscription]);
+
+  // Default to "reveal" so whole-chapter suggestions are always available, even with nothing selected.
+  const [snap, setSnap] = useState<SheetSnap>('reveal');
+  const [convoH, setConvoH] = useState(0);
+  const prevHasSelection = useRef(false);
+
+  useEffect(() => {
+    if (hasSelection === prevHasSelection.current) return;
+    prevHasSelection.current = hasSelection;
+    // Selecting, or clearing with no conversation, rests at reveal (suggestions visible).
+    if (hasSelection || !hasMessages) setSnap('reveal');
+  }, [hasSelection, hasMessages]);
+
+  const handleSend = (text: string, prompt?: string) => {
+    // Freemium gate: free users get a daily quota; over it, send them to the paywall instead.
+    const sub = useSubscriptionStore.getState();
+    if (!sub.canAsk()) {
+      router.push('/paywall');
+      return;
+    }
+    sub.recordAsk();
+
+    if (prompt) {
+      send(text, prompt); // suggestion: prompt is already passage-aware
+    } else {
+      const sel = useSelectionStore.getState().selection;
+      send(text, sel ? buildQuestionPrompt(sel, text) : undefined); // typed: tie to selection if active
+    }
+    setSnap('expanded');
+  };
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <View style={{ flex: 1 }}>
+      <ReaderScreen peekInset={peek} />
+      <BottomSheet openSnap={snap} onSnapChange={setSnap} header={<SheetHeader />} expandedContentH={convoH}>
+        <ChatPanel
+          expanded={snap === 'expanded' || snap === 'half'}
+          onSend={handleSend}
+          onConvoHeight={setConvoH}
+          contextLabel={selection ? formatReference(selection) : undefined}
+        />
+      </BottomSheet>
+      <ChatHistory onOpened={() => setSnap('expanded')} />
+    </View>
   );
 }
-
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

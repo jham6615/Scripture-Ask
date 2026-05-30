@@ -1,0 +1,165 @@
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { PurchasesPackage } from 'react-native-purchases';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Fonts, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { getCurrentOffering, purchasePackage, purchasesReady, restorePurchases } from '@/lib/revenuecat';
+import { FREE_DAILY_LIMIT } from '@/store/subscription-store';
+
+const BENEFITS = [
+  'Unlimited AI conversations',
+  'Every translation & language',
+  'First access to new features',
+  'Support the mission',
+];
+
+export default function PaywallScreen() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  const ready = purchasesReady();
+  const [loading, setLoading] = useState(true);
+  const [pkg, setPkg] = useState<PurchasesPackage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!ready) {
+      setLoading(false);
+      return;
+    }
+    getCurrentOffering()
+      .then((offering) => {
+        if (!active) return;
+        setPkg(offering?.monthly ?? offering?.availablePackages[0] ?? null);
+      })
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const priceLabel = pkg?.product.priceString ?? '$4.99';
+
+  const subscribe = async () => {
+    if (!pkg) return;
+    setBusy(true);
+    setMessage(null);
+    const result = await purchasePackage(pkg);
+    setBusy(false);
+    if (result.status === 'success') {
+      router.back();
+    } else if (result.status === 'error') {
+      setMessage(result.message);
+    }
+    // 'cancelled' → silently stay on the paywall
+  };
+
+  const restore = async () => {
+    setBusy(true);
+    setMessage(null);
+    const result = await restorePurchases();
+    setBusy(false);
+    if (result.premium) router.back();
+    else setMessage(result.message ?? 'No previous purchases found.');
+  };
+
+  const canBuy = ready && !!pkg && !busy;
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + Spacing.five }]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.kicker, { color: theme.textSecondary }]}>BEACON BIBLE PREMIUM</Text>
+        <Text style={[styles.title, { color: theme.text, fontFamily: Fonts.serif }]}>Go deeper, with no limits.</Text>
+        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+          Free includes {FREE_DAILY_LIMIT} AI questions a day. Premium removes the cap and opens everything up.
+        </Text>
+
+        <View style={styles.benefits}>
+          {BENEFITS.map((b) => (
+            <View key={b} style={styles.benefitRow}>
+              <Text style={[styles.check, { color: theme.text }]}>✓</Text>
+              <Text style={[styles.benefitText, { color: theme.text }]}>{b}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.three }]}>
+        {!ready ? (
+          <Text style={[styles.note, { color: theme.textSecondary }]}>
+            Premium subscriptions are available in the Beacon Bible app on your phone.
+          </Text>
+        ) : loading ? (
+          <ActivityIndicator color={theme.text} style={{ paddingVertical: Spacing.three }} />
+        ) : (
+          <>
+            <Text style={[styles.price, { color: theme.text }]}>
+              {priceLabel}
+              <Text style={[styles.per, { color: theme.textSecondary }]}> / month</Text>
+            </Text>
+
+            <Pressable
+              onPress={subscribe}
+              disabled={!canBuy}
+              style={[styles.primary, { backgroundColor: theme.text, opacity: canBuy ? 1 : 0.4 }]}
+            >
+              {busy ? (
+                <ActivityIndicator color={theme.background} />
+              ) : (
+                <Text style={[styles.primaryText, { color: theme.background }]}>Subscribe</Text>
+              )}
+            </Pressable>
+
+            {!pkg && (
+              <Text style={[styles.note, { color: theme.textSecondary }]}>
+                Subscriptions aren’t available just yet — please check back soon.
+              </Text>
+            )}
+
+            {message ? <Text style={[styles.note, { color: theme.textSecondary }]}>{message}</Text> : null}
+
+            <Pressable onPress={restore} disabled={busy} style={styles.linkBtn}>
+              <Text style={[styles.link, { color: theme.textSecondary }]}>Restore purchases</Text>
+            </Pressable>
+          </>
+        )}
+
+        <Pressable onPress={() => router.back()} style={styles.linkBtn}>
+          <Text style={[styles.link, { color: theme.textSecondary }]}>Not now</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, paddingHorizontal: Spacing.four },
+  content: { paddingBottom: Spacing.four, gap: Spacing.three },
+  kicker: { fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  title: { fontSize: 32, fontWeight: '700' },
+  subtitle: { fontSize: 16, lineHeight: 22 },
+  benefits: { gap: Spacing.three, marginTop: Spacing.two },
+  benefitRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  check: { fontSize: 18, fontWeight: '800' },
+  benefitText: { fontSize: 17 },
+  footer: { gap: Spacing.two },
+  price: { fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  per: { fontSize: 15, fontWeight: '500' },
+  primary: {
+    borderRadius: 14,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  primaryText: { fontSize: 17, fontWeight: '700' },
+  note: { fontSize: 12, textAlign: 'center', lineHeight: 16 },
+  linkBtn: { alignItems: 'center', paddingVertical: Spacing.two },
+  link: { fontSize: 14 },
+});

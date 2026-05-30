@@ -1,0 +1,8 @@
+# Supabase project config (used by the CLI). Link with:
+#   supabase link --project-ref gkwcekrthkkumwfztlln
+project_id = "gkwcekrthkkumwfztlln"
+
+# The AI proxy is called with the app's publishable key, not a user JWT, so skip JWT verification.
+# (Add real abuse protection — rate limiting / auth gating — before a public launch.)
+[functions.ai]
+verify_jwt = false
