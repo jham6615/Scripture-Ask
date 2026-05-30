@@ -1,6 +1,7 @@
 // RevenueCat (in-app purchases) seam. Everything that talks to `react-native-purchases` lives here so
-// the rest of the app deals in plain promises and a boolean entitlement. RevenueCat is the source of
-// truth for premium; the subscription store is just a fast local cache it keeps in sync.
+// the rest of the app deals in plain promises and a boolean entitlement. RevenueCat is the "store"
+// premium source on native (iOS/Android); the subscription store OR's it with the Supabase
+// `entitlements` source (web Stripe / cross-platform) and the dev override. See subscription-store.ts.
 //
 // The key below is the PUBLIC SDK key for the App Store app — it is meant to ship in the binary
 // (like the Supabase publishable key). The secret API key is never in the app.
@@ -36,7 +37,7 @@ function apiKey(): string | null {
 }
 
 const syncStore = (info: CustomerInfo | null | undefined) =>
-  useSubscriptionStore.getState().setPremium(hasPremium(info));
+  useSubscriptionStore.getState().setStorePremium(hasPremium(info));
 
 /** True when the premium entitlement is active in this customer info. */
 export function hasPremium(info: CustomerInfo | null | undefined): boolean {

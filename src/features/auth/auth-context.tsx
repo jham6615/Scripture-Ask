@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { identifyUser } from '@/lib/revenuecat';
 import { supabase } from '@/lib/supabase';
 import { useChatStore } from '@/store/chat-store';
+import { useSubscriptionStore } from '@/store/subscription-store';
 
 type AuthContextValue = {
   session: Session | null;
@@ -21,7 +22,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       setLoading(false);
       identifyUser(data.session?.user.id ?? null);
-      if (data.session) useChatStore.getState().resumeLatest();
+      if (data.session) {
+        useChatStore.getState().resumeLatest();
+        // Pull cross-platform premium (web Stripe / Supabase entitlements) for this account.
+        useSubscriptionStore.getState().refreshServerEntitlement();
+      }
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -29,8 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Tie RevenueCat purchases to the account (or revert to anonymous on sign-out).
       identifyUser(nextSession?.user.id ?? null);
       // Resume saved conversations on sign-in; clear them on sign-out.
-      if (nextSession) useChatStore.getState().resumeLatest();
-      else useChatStore.getState().reset();
+      if (nextSession) {
+        useChatStore.getState().resumeLatest();
+        useSubscriptionStore.getState().refreshServerEntitlement();
+      } else {
+        useChatStore.getState().reset();
+        // Drop the server-granted premium on sign-out (native store entitlement, if any, stays).
+        useSubscriptionStore.getState().setServerPremium(false);
+      }
     });
 
     return () => data.subscription.unsubscribe();

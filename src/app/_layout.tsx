@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { Colors } from '@/constants/theme';
 import { AuthProvider } from '@/features/auth/auth-context';
+import { useCheckoutReturn } from '@/features/billing/use-checkout-return';
 import { configureRevenueCat } from '@/lib/revenuecat';
 
 export default function RootLayout() {
@@ -17,6 +18,9 @@ export default function RootLayout() {
   useEffect(() => {
     configureRevenueCat();
   }, []);
+
+  // Web: handle the return from Stripe Checkout (refresh entitlement on ?checkout=success).
+  useCheckoutReturn();
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

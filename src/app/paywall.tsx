@@ -1,13 +1,17 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { PurchasesPackage } from 'react-native-purchases';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { startWebCheckout } from '@/lib/billing';
 import { getCurrentOffering, purchasePackage, purchasesReady, restorePurchases } from '@/lib/revenuecat';
 import { FREE_DAILY_LIMIT } from '@/store/subscription-store';
+
+/** Display price for the monthly plan. Keep in sync with the Stripe Price and the App Store subscription. */
+const PRICE_LABEL = '$4.99';
 
 const BENEFITS = [
   'Unlimited AI conversations',
@@ -21,6 +25,7 @@ export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const isWeb = Platform.OS === 'web';
   const ready = purchasesReady();
   const [loading, setLoading] = useState(true);
   const [pkg, setPkg] = useState<PurchasesPackage | null>(null);
@@ -44,7 +49,20 @@ export default function PaywallScreen() {
     };
   }, []);
 
-  const priceLabel = pkg?.product.priceString ?? '$4.99';
+  const priceLabel = pkg?.product.priceString ?? PRICE_LABEL;
+
+  // Web: hand off to Stripe Checkout (full-page redirect). On success Stripe returns the browser to
+  // PUBLIC_SITE_URL/?checkout=success, where the app refreshes the entitlement and unlocks premium.
+  const subscribeWeb = async () => {
+    setBusy(true);
+    setMessage(null);
+    const result = await startWebCheckout();
+    if (!result.ok) {
+      setBusy(false);
+      setMessage(result.message ?? 'Could not start checkout. Please try again.');
+    }
+    // On success the browser navigates away to Stripe, so we intentionally leave `busy` set.
+  };
 
   const subscribe = async () => {
     if (!pkg) return;
@@ -91,7 +109,32 @@ export default function PaywallScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.three }]}>
-        {!ready ? (
+        {isWeb ? (
+          <>
+            <Text style={[styles.price, { color: theme.text }]}>
+              {PRICE_LABEL}
+              <Text style={[styles.per, { color: theme.textSecondary }]}> / month</Text>
+            </Text>
+
+            <Pressable
+              onPress={subscribeWeb}
+              disabled={busy}
+              style={[styles.primary, { backgroundColor: theme.text, opacity: busy ? 0.4 : 1 }]}
+            >
+              {busy ? (
+                <ActivityIndicator color={theme.background} />
+              ) : (
+                <Text style={[styles.primaryText, { color: theme.background }]}>Subscribe</Text>
+              )}
+            </Pressable>
+
+            {message ? <Text style={[styles.note, { color: theme.textSecondary }]}>{message}</Text> : null}
+
+            <Text style={[styles.note, { color: theme.textSecondary }]}>
+              Secure checkout via Stripe. Cancel anytime.
+            </Text>
+          </>
+        ) : !ready ? (
           <Text style={[styles.note, { color: theme.textSecondary }]}>
             Premium subscriptions are available in the Beacon Bible app on your phone.
           </Text>
