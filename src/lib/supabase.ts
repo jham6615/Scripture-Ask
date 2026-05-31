@@ -9,9 +9,19 @@ import { Platform } from 'react-native';
 const SUPABASE_URL = 'https://gkwcekrthkkumwfztlln.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_UPHiWHzV7zWaqY8dZZiaHA_5wFF4AL6';
 
+// Auth storage. On web, use SYNCHRONOUS localStorage — AsyncStorage's async read/write races the PKCE
+// code-verifier during OAuth and intermittently drops the session (sign-in worked once, then failed
+// repeatedly: the classic signature of a storage race). localStorage is synchronous and deterministic
+// for a web SPA. Native keeps AsyncStorage. The cast satisfies the storage type; both shapes expose
+// getItem/setItem/removeItem and Supabase handles sync or async returns.
+const authStorage =
+  Platform.OS === 'web' && typeof globalThis.localStorage !== 'undefined'
+    ? (globalThis.localStorage as unknown as typeof AsyncStorage)
+    : AsyncStorage;
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: AsyncStorage,
+    storage: authStorage,
     autoRefreshToken: true,
     persistSession: true,
     // OAuth (Google) uses the PKCE code flow.
