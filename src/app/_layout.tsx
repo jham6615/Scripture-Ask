@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { Colors } from '@/constants/theme';
 import { AuthProvider } from '@/features/auth/auth-context';
+import { useOAuthCallback } from '@/features/auth/use-oauth-callback';
 import { useCheckoutReturn } from '@/features/billing/use-checkout-return';
 import { configureRevenueCat } from '@/lib/revenuecat';
 
@@ -18,6 +19,9 @@ export default function RootLayout() {
   useEffect(() => {
     configureRevenueCat();
   }, []);
+
+  // Web: finish Google / email-confirmation sign-in by exchanging the ?code= for a session.
+  useOAuthCallback();
 
   // Web: handle the return from Stripe Checkout (refresh entitlement on ?checkout=success).
   useCheckoutReturn();

@@ -14,8 +14,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
-    // OAuth (Google) uses the PKCE code flow; on web the session is read back from the redirect URL.
+    // OAuth (Google) uses the PKCE code flow.
     flowType: 'pkce',
-    detectSessionInUrl: Platform.OS === 'web',
+    // Disable Supabase's automatic URL detection. It runs during client construction and reads the
+    // PKCE code-verifier from AsyncStorage, which is async on web — so the read comes back empty and
+    // the exchange fails, leaving an orphaned verifier and no session. We exchange the code explicitly
+    // after mount instead (see features/auth/use-oauth-callback.ts), when storage is reliably ready.
+    detectSessionInUrl: false,
   },
 });
