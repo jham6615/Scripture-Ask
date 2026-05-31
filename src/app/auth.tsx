@@ -50,14 +50,18 @@ export default function AuthScreen() {
           )}
         </View>
 
-        <Pressable onPress={() => router.back()} style={[styles.primary, { backgroundColor: theme.text }]}>
+        <Pressable
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+          style={[styles.primary, { backgroundColor: theme.text }]}
+        >
           <Text style={[styles.primaryText, { color: theme.background }]}>Done</Text>
         </Pressable>
 
         <Pressable
           onPress={async () => {
             await supabase.auth.signOut();
-            router.back();
+            if (router.canGoBack()) router.back();
+            else router.replace('/');
           }}
           style={styles.linkBtn}
         >
