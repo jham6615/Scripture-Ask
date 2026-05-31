@@ -16,12 +16,15 @@ WebBrowser.maybeCompleteAuthSession();
 export async function signInWithGoogle(): Promise<void> {
   if (Platform.OS === 'web') {
     const origin = (globalThis as { location?: { origin?: string } }).location?.origin;
+    // Return to a PATH (/auth), not the bare origin. Supabase's redirect allow-list uses
+    // `https://<domain>/**`, which matches paths but NOT the bare domain — so redirecting to the bare
+    // origin makes Supabase drop the auth code on the way back. A path reliably matches the wildcard.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: origin ? { redirectTo: origin } : undefined,
+      options: origin ? { redirectTo: `${origin}/auth` } : undefined,
     });
     if (error) throw error;
-    return; // the page redirects; the session is restored on return
+    return; // the page redirects; useOAuthCallback exchanges the code on return
   }
 
   const redirectTo = Linking.createURL('auth-callback');
