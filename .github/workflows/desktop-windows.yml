@@ -1,0 +1,38 @@
+name: Build Windows Desktop
+
+# Builds the Windows .exe installer for the Beacon Bible desktop app on a native Windows runner
+# (no Wine needed). Run it manually from the Actions tab, or by pushing a tag like `desktop-v1.0.0`.
+# The installer is uploaded as a downloadable artifact on the run. It's unsigned for now, so Windows
+# SmartScreen will warn on first launch ("More info" -> "Run anyway"); add a code-signing cert later.
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-bible-windows-installer
+          path: desktop/dist/*.exe
+          if-no-files-found: error
