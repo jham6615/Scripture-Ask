@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
 import Animated, { Easing, Keyframe } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -9,6 +9,14 @@ const DURATION = 600;
 
 export function AnimatedSplashOverlay() {
   const [visible, setVisible] = useState(true);
+
+  // Fallback dismissal. The reanimated entering-animation callback below (withCallback) is unreliable
+  // on web and can leave this opaque splash stuck over the fully-rendered app. A timer guarantees the
+  // splash always clears shortly after the animation would have finished, on every platform.
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(false), DURATION + 400);
+    return () => clearTimeout(timer);
+  }, []);
 
   if (!visible) return null;
 
