@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 
 import { identifyUser } from '@/lib/revenuecat';
 import { supabase } from '@/lib/supabase';
@@ -44,7 +45,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => data.subscription.unsubscribe();
+    // Re-check cross-platform premium whenever the app returns to the foreground, so a purchase made
+    // on another platform (e.g. paid on web, now opening the iPhone app) takes effect without a relaunch.
+    // AppState maps to document visibility on web, so this covers native + web + desktop.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') useSubscriptionStore.getState().refreshServerEntitlement();
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+      appStateSub.remove();
+    };
   }, []);
 
   return <AuthContext.Provider value={{ session, loading }}>{children}</AuthContext.Provider>;

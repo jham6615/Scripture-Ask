@@ -5,6 +5,7 @@ import type { PurchasesPackage } from 'react-native-purchases';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
+import { useAuth } from '@/features/auth/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import { startWebCheckout } from '@/lib/billing';
 import { getCurrentOffering, purchasePackage, purchasesReady, restorePurchases } from '@/lib/revenuecat';
@@ -24,6 +25,12 @@ export default function PaywallScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const { session } = useAuth();
+  // Payment is only allowed when signed in, so every subscription is bound to a Supabase account from
+  // the moment of purchase — that account is the source of truth and unlocks premium on every platform.
+  const signedIn = !!session;
+  const subscribeLabel = signedIn ? 'Subscribe' : 'Sign in to subscribe';
 
   const isWeb = Platform.OS === 'web';
   const ready = purchasesReady();
@@ -54,6 +61,10 @@ export default function PaywallScreen() {
   // Web: hand off to Stripe Checkout (full-page redirect). On success Stripe returns the browser to
   // PUBLIC_SITE_URL/?checkout=success, where the app refreshes the entitlement and unlocks premium.
   const subscribeWeb = async () => {
+    if (!signedIn) {
+      router.push('/auth'); // must be signed in to subscribe; returns here after sign-in
+      return;
+    }
     setBusy(true);
     setMessage(null);
     const result = await startWebCheckout();
@@ -65,6 +76,10 @@ export default function PaywallScreen() {
   };
 
   const subscribe = async () => {
+    if (!signedIn) {
+      router.push('/auth'); // must be signed in to subscribe; returns here after sign-in
+      return;
+    }
     if (!pkg) return;
     setBusy(true);
     setMessage(null);
@@ -87,7 +102,8 @@ export default function PaywallScreen() {
     else setMessage(result.message ?? 'No previous purchases found.');
   };
 
-  const canBuy = ready && !!pkg && !busy;
+  // When not signed in, the button is still tappable — it routes to sign-in (no package needed yet).
+  const canBuy = ready && !busy && (!signedIn || !!pkg);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + Spacing.five }]}>
@@ -124,14 +140,16 @@ export default function PaywallScreen() {
               {busy ? (
                 <ActivityIndicator color={theme.background} />
               ) : (
-                <Text style={[styles.primaryText, { color: theme.background }]}>Subscribe</Text>
+                <Text style={[styles.primaryText, { color: theme.background }]}>{subscribeLabel}</Text>
               )}
             </Pressable>
 
             {message ? <Text style={[styles.note, { color: theme.textSecondary }]}>{message}</Text> : null}
 
             <Text style={[styles.note, { color: theme.textSecondary }]}>
-              Secure checkout via Stripe. Cancel anytime.
+              {signedIn
+                ? 'Secure checkout via Stripe. Cancel anytime.'
+                : 'Sign in so your Premium works across iPhone, web, and desktop.'}
             </Text>
           </>
         ) : !ready ? (
@@ -155,11 +173,11 @@ export default function PaywallScreen() {
               {busy ? (
                 <ActivityIndicator color={theme.background} />
               ) : (
-                <Text style={[styles.primaryText, { color: theme.background }]}>Subscribe</Text>
+                <Text style={[styles.primaryText, { color: theme.background }]}>{subscribeLabel}</Text>
               )}
             </Pressable>
 
-            {!pkg && (
+            {signedIn && !pkg && (
               <Text style={[styles.note, { color: theme.textSecondary }]}>
                 Subscriptions aren’t available just yet — please check back soon.
               </Text>
