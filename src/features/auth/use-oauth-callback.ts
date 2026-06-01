@@ -27,6 +27,16 @@ export function useOAuthCallback(): void {
 
     const g = globalThis as unknown as WebGlobals;
     const url = new URL(g.location.href);
+
+    // DIAGNOSTIC: print exactly what the auth redirect lands on, so we can see the real cause.
+    if (url.search || url.hash) {
+      console.log('[oauth] RETURN →', JSON.stringify({ path: url.pathname, search: url.search, hash: url.hash }));
+    }
+    const errParam = url.searchParams.get('error') || url.searchParams.get('error_code');
+    if (errParam) {
+      console.error('[oauth] PROVIDER ERROR →', errParam, '::', url.searchParams.get('error_description'));
+    }
+
     const code = url.searchParams.get('code');
     if (!code) return;
 
