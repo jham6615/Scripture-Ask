@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
+import { syncEntitlement } from '@/lib/billing';
 import { useSubscriptionStore } from '@/store/subscription-store';
 
 type WebGlobals = {
@@ -33,9 +34,12 @@ export function useCheckoutReturn(): void {
     let tries = 0;
     const tick = async () => {
       tries += 1;
+      // Pull the authoritative status from Stripe into the entitlements table (robust to webhook
+      // lag / a transient "incomplete" snapshot), then reflect it in the local store.
+      await syncEntitlement();
       await useSubscriptionStore.getState().refreshServerEntitlement();
-      if (useSubscriptionStore.getState().serverPremium || tries >= 6) return;
-      g.setTimeout(tick, 1500);
+      if (useSubscriptionStore.getState().serverPremium || tries >= 4) return;
+      g.setTimeout(tick, 2000);
     };
     void tick();
   }, []);

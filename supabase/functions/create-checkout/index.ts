@@ -40,7 +40,10 @@ Deno.serve(async (req) => {
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!);
     const priceId = Deno.env.get('STRIPE_PRICE_ID')!;
-    const siteUrl = Deno.env.get('PUBLIC_SITE_URL') ?? 'http://localhost:8081';
+    // Use the calling site's Origin for the post-checkout redirect so it always returns to the right
+    // place (no PUBLIC_SITE_URL secret required). Falls back to the secret, then localhost for dev.
+    const siteUrl =
+      req.headers.get('origin') ?? Deno.env.get('PUBLIC_SITE_URL') ?? 'http://localhost:8081';
 
     // Reuse the Stripe customer we already linked to this account, if any (one customer per user).
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);

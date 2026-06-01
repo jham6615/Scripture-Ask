@@ -30,3 +30,16 @@ export async function startWebCheckout(): Promise<{ ok: boolean; message?: strin
   (globalThis as unknown as { location: { href: string } }).location.href = url;
   return { ok: true };
 }
+
+/**
+ * Pull the authoritative subscription status from Stripe into the entitlements table (via the
+ * sync-entitlement Edge Function). Used after checkout — webhook delivery can lag or miss the
+ * "active" transition, so we ask Stripe directly. Safe no-op when signed out or on error.
+ */
+export async function syncEntitlement(): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.functions.invoke('sync-entitlement', { body: {} }).catch(() => {});
+}
