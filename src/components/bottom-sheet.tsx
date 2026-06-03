@@ -14,6 +14,9 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export const SHEET_COLLAPSED_RATIO = 0.08;
+// Ordered from most-collapsed to most-expanded. Defined outside the component so the tap
+// gesture worklet captures a stable reference that never changes between renders.
+const SNAP_ORDER: SheetSnap[] = ['collapsed', 'reveal', 'half', 'expanded'];
 /** Half-height snap: reader and chat both visible at once. */
 export const SHEET_HALF_RATIO = 0.5;
 export const SHEET_EXPANDED_RATIO = 0.8;
@@ -117,7 +120,6 @@ export function BottomSheet({
   };
 
   // Track current snap as a shared value so the worklet-side tap handler can read it.
-  const SNAP_ORDER: SheetSnap[] = ['collapsed', 'reveal', 'half', 'expanded'];
   const snapIdxSV = useSharedValue(SNAP_ORDER.indexOf(openSnap));
   useEffect(() => {
     snapIdxSV.value = SNAP_ORDER.indexOf(openSnap);

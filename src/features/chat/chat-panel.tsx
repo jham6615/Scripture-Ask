@@ -76,7 +76,7 @@ export function ChatPanel(props: Props) {
         <ScrollView
           ref={listRef}
           style={isColumn ? styles.listFill : { maxHeight: convoMaxH }}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={isColumn ? styles.listContentColumn : styles.listContent}
           onContentSizeChange={(_w, h) => {
             scrollToEnd();
             reportConvoHeight?.(h);
@@ -165,7 +165,12 @@ const styles = StyleSheet.create({
   // Desktop column: fill the pane; the conversation list flex-grows and scrolls within it.
   containerFill: { flex: 1 },
   listFill: { flex: 1 },
+  // Sheet mode: natural content height so the sheet can hug it with maxHeight.
   listContent: { paddingTop: Spacing.two, gap: Spacing.three },
+  // Column (desktop) mode: grow to fill the ScrollView height, messages anchored to the bottom.
+  // Empty space appears above the first message (standard chat pattern), not below the last.
+  // Suggestion chips sit directly below the scroll view so there is no visible gap.
+  listContentColumn: { paddingTop: Spacing.two, gap: Spacing.three, flexGrow: 1, justifyContent: 'flex-end' },
   bubbleRow: { flexDirection: 'row' },
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },
