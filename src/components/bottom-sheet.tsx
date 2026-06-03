@@ -52,7 +52,10 @@ export function BottomSheet({
   const showConvo = openSnap === 'expanded' || openSnap === 'half';
   // The sheet floats above the keyboard, so when it's up the usable height shrinks to fit above it.
   const availH = kbH > 0 ? screenH - kbH - topMargin : expandedH;
-  const collapsedH = handleH;
+  // Add bottom safe-area so the handle sits ABOVE the iPhone home-indicator zone. Without this,
+  // the grab area overlaps the system home-swipe area and iOS captures the touch before the pan
+  // gesture can activate.
+  const collapsedH = handleH + insets.bottom;
   const revealH = Math.min(expandedH, handleH + contentH);
   // Half-height snap: ~50% screen so reader and chat are both visible. Capped by availH so the
   // keyboard never pushes it off-screen.
@@ -113,6 +116,23 @@ export function BottomSheet({
     onSnapChange?.(snap);
   };
 
+  // Track current snap as a shared value so the worklet-side tap handler can read it.
+  const SNAP_ORDER: SheetSnap[] = ['collapsed', 'reveal', 'half', 'expanded'];
+  const snapIdxSV = useSharedValue(SNAP_ORDER.indexOf(openSnap));
+  useEffect(() => {
+    snapIdxSV.value = SNAP_ORDER.indexOf(openSnap);
+  }, [openSnap, snapIdxSV]);
+
+  // Single tap advances the sheet one level up (collapsed→reveal→half→expanded).
+  // This lets users open the sheet with a simple tap rather than requiring a precise drag.
+  const tap = Gesture.Tap()
+    .maxDuration(200)
+    .onEnd(() => {
+      'worklet';
+      const nextIdx = Math.min(snapIdxSV.value + 1, SNAP_ORDER.length - 1);
+      runOnJS(settle)(SNAP_ORDER[nextIdx]);
+    });
+
   const pan = Gesture.Pan()
     .activeOffsetY([-8, 8])
     .onStart(() => {
@@ -139,6 +159,9 @@ export function BottomSheet({
       runOnJS(settle)(nearest.snap);
     });
 
+  // Race: quick lift without movement → tap wins; sustained movement → pan wins immediately.
+  const gesture = Gesture.Race(tap, pan);
+
   const animatedStyle = useAnimatedStyle(() => {
     const kb = kbOffset.value;
     const maxH = kb > 0 ? screenH - kb - topMargin : screenH;
@@ -151,7 +174,7 @@ export function BottomSheet({
   return (
     <Animated.View style={[styles.sheet, { backgroundColor: theme.backgroundElement }, animatedStyle]}>
       <View style={styles.clip}>
-        <GestureDetector gesture={pan}>
+        <GestureDetector gesture={gesture}>
           <View style={styles.handleArea} onLayout={onHandleLayout}>
             <View style={[styles.grabber, { backgroundColor: theme.textSecondary }]} />
             {header}
