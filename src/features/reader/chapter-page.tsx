@@ -19,17 +19,25 @@ import { useVersionStore } from '@/store/versions-store';
 type Props = {
   chapter: Chapter;
   width: number;
+  /** Explicit height of the page — required so the inner ScrollView has a bounded container to
+   *  scroll within. On web, a ScrollView without an explicit parent height expands to its full
+   *  content height, making vertical scrolling impossible. */
+  pageHeight: number;
   bottomInset: number;
   bookId: string;
   bookName: string;
+  /** 'sheet' = mobile bottom-sheet layout (lift selected verses + reposition on keyboard).
+   *  'column' = desktop split-pane (no sheet to lift above, no on-screen keyboard chasing). */
+  mode: 'sheet' | 'column';
 };
 
-export function ChapterPage({ chapter, width, bottomInset, bookId, bookName }: Props) {
+export function ChapterPage({ chapter, width, pageHeight, bottomInset, bookId, bookName, mode }: Props) {
   const theme = useTheme();
   const { height } = useWindowDimensions();
   const selection = useSelectionStore((s) => s.selection);
   const toggleVerse = useSelectionStore((s) => s.toggleVerse);
   const version = useVersionStore((s) => s.code);
+  const isSheet = mode === 'sheet';
 
   const [verses, setVerses] = useState<Verse[]>(version === 'web' ? chapter.verses : []);
   const [loading, setLoading] = useState(version !== 'web');
@@ -72,9 +80,10 @@ export function ChapterPage({ chapter, width, bottomInset, bookId, bookName }: P
   const anchor = useRef<{ pageY: number; scrollY: number } | null>(null);
 
   // When the keyboard rises (the reader starts typing), scroll the selected verse up so the floating sheet
-  // doesn't cover it. Only the chapter that owns the selection subscribes.
+  // doesn't cover it. Only the chapter that owns the selection subscribes — and only in sheet mode
+  // (in column mode the chat input lives off to the side, so the reader must stay put).
   useEffect(() => {
-    if (!ownsSelection) return;
+    if (!isSheet || !ownsSelection) return;
     const evt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const sub = Keyboard.addListener(evt, () => {
       const a = anchor.current;
@@ -86,19 +95,22 @@ export function ChapterPage({ chapter, width, bottomInset, bookId, bookName }: P
       scrollRef.current?.scrollTo({ y: Math.max(0, a.pageY + a.scrollY - targetY), animated: true });
     });
     return () => sub.remove();
-  }, [ownsSelection, height]);
+  }, [isSheet, ownsSelection, height]);
 
   return (
-    <View style={{ width }}>
+    <View style={{ width, height: pageHeight }}>
       <ScrollView
         ref={scrollRef}
+        style={{ flex: 1 }}
         onScroll={(e) => {
           scrollY.current = e.nativeEvent.contentOffset.y;
         }}
         scrollEventThrottle={16}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: bottomInset + (ownsSelection ? height * 0.5 : Spacing.six) },
+          // Lift the bottom of the page so a tapped verse can scroll above the floating sheet —
+          // but only in sheet mode. In column mode there's no sheet, so this padding is dead space.
+          { paddingBottom: bottomInset + (isSheet && ownsSelection ? height * 0.5 : Spacing.six) },
         ]}
         showsVerticalScrollIndicator={false}
       >

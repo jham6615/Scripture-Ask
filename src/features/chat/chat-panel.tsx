@@ -9,18 +9,28 @@ import { useTheme } from '@/hooks/use-theme';
 import { type ChatMessage, useChatStore } from '@/store/chat-store';
 import { FREE_DAILY_LIMIT, useSubscriptionStore } from '@/store/subscription-store';
 
-type Props = {
-  onSend: (text: string, prompt?: string) => void;
-  contextLabel?: string;
-  /** When false (reveal/collapsed), the conversation is hidden so the panel hugs its content. */
-  expanded?: boolean;
-  /** Reports the conversation's natural content height so the sheet can size itself to it. */
-  onConvoHeight?: (h: number) => void;
-  /** Max height for the conversation list (injected by the sheet) so it caps + scrolls instead of overflowing. */
-  convoMaxH?: number;
-};
+type Props =
+  | {
+      /** Mobile bottom-sheet layout. Conversation visibility + height are driven by the sheet snap. */
+      mode: 'sheet';
+      onSend: (text: string, prompt?: string) => void;
+      contextLabel?: string;
+      /** When false (reveal/collapsed), the conversation is hidden so the panel hugs its content. */
+      expanded: boolean;
+      /** Reports the conversation's natural content height so the sheet can size itself to it. */
+      onConvoHeight: (h: number) => void;
+      /** Max height for the conversation list (injected by the sheet via cloneElement). */
+      convoMaxH?: number;
+    }
+  | {
+      /** Desktop column layout. Panel fills its container; conversation always visible and scrolls within. */
+      mode: 'column';
+      onSend: (text: string, prompt?: string) => void;
+      contextLabel?: string;
+    };
 
-export function ChatPanel({ onSend, contextLabel, expanded = false, onConvoHeight, convoMaxH }: Props) {
+export function ChatPanel(props: Props) {
+  const { onSend, contextLabel } = props;
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const messages = useChatStore((s) => s.messages);
@@ -33,7 +43,9 @@ export function ChatPanel({ onSend, contextLabel, expanded = false, onConvoHeigh
 
   const scrollToEnd = () => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
 
-  // The sheet itself floats above the keyboard, so the panel only needs its resting safe-area pad.
+  // Sheet mode: the sheet itself floats above the keyboard, so the panel only needs its resting pad.
+  // Column mode: there's no keyboard-avoiding container, but the input lives high enough on desktop
+  // that the safe-area + a little breathing room is all we need.
   const bottomPad = insets.bottom + Spacing.two;
   const canSend = draft.trim().length > 0 && !isGenerating;
   const isToday = usageDate === new Date().toISOString().slice(0, 10);
@@ -45,18 +57,23 @@ export function ChatPanel({ onSend, contextLabel, expanded = false, onConvoHeigh
     setDraft('');
   };
 
+  const isColumn = props.mode === 'column';
+  // Narrow once: pull the sheet-only callbacks out so the JSX stays free of mode discriminator checks.
+  const convoMaxH = props.mode === 'sheet' ? props.convoMaxH : undefined;
+  const reportConvoHeight = props.mode === 'sheet' ? props.onConvoHeight : undefined;
+  const showConvo = isColumn || (props.mode === 'sheet' && props.expanded);
   return (
-    <View style={[styles.container, { paddingBottom: bottomPad }]}>
+    <View style={[styles.container, isColumn && styles.containerFill, { paddingBottom: bottomPad }]}>
       <SuggestionCards onSelect={onSend} />
 
-      {expanded && (
+      {showConvo && (
         <ScrollView
           ref={listRef}
-          style={{ maxHeight: convoMaxH }}
-          contentContainerStyle={styles.listContent}
+          style={isColumn ? styles.listFill : { maxHeight: convoMaxH }}
+          contentContainerStyle={isColumn ? styles.listContentColumn : styles.listContent}
           onContentSizeChange={(_w, h) => {
             scrollToEnd();
-            onConvoHeight?.(h);
+            reportConvoHeight?.(h);
           }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -118,9 +135,14 @@ function UserBubble({ message }: { message: ChatMessage }) {
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: Spacing.four },
-  // No flexGrow: the content reports its *natural* height (not stretched to fill) so the sheet can hug it,
-  // and the list's maxHeight (set by the sheet) makes it scroll once the conversation outgrows the room.
+  // Desktop column: fill the pane; the conversation list flex-grows and scrolls within it.
+  containerFill: { flex: 1 },
+  listFill: { flex: 1 },
+  // Sheet mode: no flexGrow so the content reports its *natural* height, which the sheet uses to size itself.
   listContent: { paddingTop: Spacing.two, gap: Spacing.three },
+  // Column (desktop) mode: grow to fill the ScrollView and anchor messages to the bottom so they stack
+  // upward like a standard chat — empty space appears above the first message, not below the last.
+  listContentColumn: { paddingTop: Spacing.two, gap: Spacing.three, flexGrow: 1, justifyContent: 'flex-end' },
   bubbleRow: { flexDirection: 'row' },
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },

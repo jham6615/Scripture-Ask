@@ -39,6 +39,8 @@ export type ChatContext = {
 
 const CHAT_SYSTEM_PROMPT = `You are a thoughtful Bible study companion for everyday readers — curious seekers, regular churchgoers, and skeptics alike. Treat the reader as an intelligent adult who wants real substance without academic jargon. Be accessible without ever talking down.
 
+LANGUAGE — Detect the language of the user's most recent message and respond entirely in that same language: the "content" markdown, every entry in "suggestedQuestions", and every entry in "sources". Match the register and natural phrasing of that language — never word-for-word translations of English idioms. Verse references in cross-references should use the locally conventional book name (e.g., "Juan 3:16" in Spanish, "Yūḥannā 3:16" in Arabic). Bible verse text quoted in blockquotes or inline stays in whatever translation the user has open — even if that translation is in a different language than their question. The JSON keys themselves ("content", "sources", "suggestedQuestions") stay in English. If the user's message is too short or ambiguous to language-detect on its own, fall back to the language of the prior turns in this conversation; if it's the very first message and still ambiguous, default to English.
+
 ESSENCE FIRST — before writing, internally answer: "What is this text really about at its core?" Not what happens (events), not the historical trivia — the essential heart. Capture it in as many sentences as it takes to be clear.
 
 The core should shape your whole response: the opening names it, every paragraph serves it, the closing crystallizes it. Don't pad with tangents, don't bury the lesson under exposition, don't enumerate sub-points unless the question genuinely demands enumeration (see STRUCTURE for when).
@@ -110,6 +112,8 @@ Respond ONLY as JSON shaped like:
 
 const SUGGESTIONS_SYSTEM_PROMPT = `You write tappable question cards for a Bible app. Generate short, sharp questions that make someone stop and think.
 
+LANGUAGE — Write every question in the language specified at the end of the user message. Use natural, idiomatic phrasing for that language — never word-for-word translations of English. Bible book names in questions should use the locally conventional form (e.g., "Juan" in Spanish, "Yūḥannā" in Arabic). If no language is specified, default to English.
+
 CRITICAL — TWO MODES based on the user message:
 
 MODE A: The user has HIGHLIGHTED SPECIFIC VERSES (the verse text is quoted in the user message).
@@ -156,8 +160,10 @@ async function callAI(messages: ChatMsg[], temperature: number, maxTokens: numbe
     throw new Error(String((data as { error: unknown }).error));
   }
   const content = (data as { content?: string })?.content ?? '{}';
+  // Non-English prompts occasionally come back wrapped in ```json … ``` fences; strip them before parse.
+  const unwrapped = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
   try {
-    return JSON.parse(content);
+    return JSON.parse(unwrapped);
   } catch {
     return {};
   }
@@ -177,7 +183,8 @@ export async function generate(messages: ApiMessage[], context?: ChatContext): P
   const sys: ChatMsg[] = [{ role: 'system', content: CHAT_SYSTEM_PROMPT }];
   const ctx = buildContextLine(context);
   if (ctx) sys.push({ role: 'system', content: ctx });
-  const out = await callAI([...sys, ...messages], 0.7, 1400);
+  // Non-Latin scripts (CJK, Arabic) cost more tokens per word — give them headroom to finish.
+  const out = await callAI([...sys, ...messages], 0.7, 1800);
   return {
     content: typeof out.content === 'string' ? out.content : '',
     sources: asStringArray(out.sources),
@@ -190,9 +197,17 @@ export async function generate(messages: ApiMessage[], context?: ChatContext): P
  * When `passageText` is provided (user has selected specific verses), questions hook into the
  * actual selected wording — not just what the model remembers about the reference. When omitted
  * (no selection), questions are about the whole chapter the reader is on.
+ *
+ * `language` is the human-readable English name of the language to write questions in (e.g. "Spanish").
+ * Idle cards have no user input to language-detect from, so callers pass the device's locale.
  */
-export async function generateSuggestions(reference: string, passageText?: string, count = 6): Promise<string[]> {
-  const userMessage = passageText
+export async function generateSuggestions(
+  reference: string,
+  passageText?: string,
+  count = 6,
+  language = 'English',
+): Promise<string[]> {
+  const body = passageText
     ? `MODE A — HIGHLIGHTED VERSES.
 
 Reference: ${reference}
@@ -205,6 +220,7 @@ Generate ${count} questions tied to concrete details IN THESE EXACT VERSES. Refe
     : `MODE B — WHOLE CHAPTER.
 
 The user is reading ${reference}, with no specific verses highlighted. Generate ${count} questions about the chapter as a whole — its main themes, tensions, and arcs.`;
+  const userMessage = `${body}\n\nLanguage: ${language}`;
   const out = await callAI(
     [
       { role: 'system', content: SUGGESTIONS_SYSTEM_PROMPT },

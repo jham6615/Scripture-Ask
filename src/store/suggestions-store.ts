@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { generateSuggestions } from '@/lib/api';
+import { getDeviceLanguageName } from '@/lib/locale';
 
 type SuggestionsState = {
   items: string[];
@@ -23,7 +24,7 @@ export const useSuggestionsStore = create<SuggestionsState>((set, get) => ({
     // Clear items immediately so the old cards (e.g. verse-specific ones after deselection)
     // don't linger while the new request is in flight. The user sees a clean spinner → new cards.
     set({ loading: true, reference, passageText, items: [] });
-    generateSuggestions(reference, passageText || undefined)
+    generateSuggestions(reference, passageText || undefined, undefined, getDeviceLanguageName())
       .then((items) => {
         const s = get();
         if (s.reference === reference && s.passageText === passageText) set({ items, loading: false });
