@@ -70,30 +70,13 @@ export function ChatPanel(props: Props) {
   const showConvo = isColumn || (props.mode === 'sheet' && props.expanded);
   return (
     <View style={[styles.container, isColumn && styles.containerFill, { paddingBottom: bottomPad }]}>
-      {/* In column mode with an active conversation, collapse the carousel into a compact toggle
-          so it doesn't crowd the messages. In sheet mode (and fresh conversations) always show full. */}
-      {isColumn && messages.length > 0 ? (
-        <>
-          <Pressable
-            onPress={() => setSuggestOpen((o) => !o)}
-            style={styles.suggestToggle}
-            hitSlop={8}
-          >
-            <Text style={[styles.suggestLabel, { color: theme.textSecondary }]}>
-              {`Suggested questions ${suggestOpen ? '▴' : '▾'}`}
-            </Text>
-          </Pressable>
-          {suggestOpen && <SuggestionCards onSelect={onSend} />}
-        </>
-      ) : (
-        <SuggestionCards onSelect={onSend} />
-      )}
-
+      {/* Messages: fills the available space and scrolls. In sheet mode this is hidden until the
+          sheet expands; in column mode it's always visible. */}
       {showConvo && (
         <ScrollView
           ref={listRef}
           style={isColumn ? styles.listFill : { maxHeight: convoMaxH }}
-          contentContainerStyle={isColumn ? styles.listContentColumn : styles.listContent}
+          contentContainerStyle={styles.listContent}
           onContentSizeChange={(_w, h) => {
             scrollToEnd();
             reportConvoHeight?.(h);
@@ -110,6 +93,27 @@ export function ChatPanel(props: Props) {
             ),
           )}
         </ScrollView>
+      )}
+
+      {/* Suggestion chips live BELOW the messages and ABOVE the input — like quick-reply chips in
+          standard chat apps. This eliminates any gap between suggestions and messages.
+          In column mode with an active conversation, collapses to a compact toggle to save space.
+          In sheet mode always shown full (needed for the "reveal" peek state). */}
+      {isColumn && messages.length > 0 ? (
+        <>
+          <Pressable
+            onPress={() => setSuggestOpen((o) => !o)}
+            style={styles.suggestToggle}
+            hitSlop={8}
+          >
+            <Text style={[styles.suggestLabel, { color: theme.textSecondary }]}>
+              {`Suggested questions ${suggestOpen ? '▴' : '▾'}`}
+            </Text>
+          </Pressable>
+          {suggestOpen && <SuggestionCards onSelect={onSend} />}
+        </>
+      ) : (
+        <SuggestionCards onSelect={onSend} />
       )}
 
       {!isPremium && (
@@ -161,11 +165,7 @@ const styles = StyleSheet.create({
   // Desktop column: fill the pane; the conversation list flex-grows and scrolls within it.
   containerFill: { flex: 1 },
   listFill: { flex: 1 },
-  // Sheet mode: no flexGrow so the content reports its *natural* height, which the sheet uses to size itself.
   listContent: { paddingTop: Spacing.two, gap: Spacing.three },
-  // Column (desktop) mode: grow to fill the ScrollView and anchor messages to the bottom so they stack
-  // upward like a standard chat — empty space appears above the first message, not below the last.
-  listContentColumn: { paddingTop: Spacing.two, gap: Spacing.three, flexGrow: 1, justifyContent: 'flex-end' },
   bubbleRow: { flexDirection: 'row' },
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },
