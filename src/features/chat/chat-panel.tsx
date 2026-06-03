@@ -90,7 +90,7 @@ export function ChatPanel(props: Props) {
         <ScrollView
           ref={listRef}
           style={isColumn ? styles.listFill : { maxHeight: convoMaxH }}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={isColumn ? styles.listContentColumn : styles.listContent}
           onContentSizeChange={(_w, h) => {
             scrollToEnd();
             reportConvoHeight?.(h);
@@ -179,11 +179,11 @@ const styles = StyleSheet.create({
   // Desktop column: fill the pane; the conversation list flex-grows and scrolls within it.
   containerFill: { flex: 1 },
   listFill: { flex: 1 },
-  // Both modes: natural top-down layout. scrollToEnd() keeps the latest message in view.
-  // flexGrow+justifyContent:flex-end was removed — it caused dead space below the suggestion
-  // cards on web when the scroll view recalculated its height after cards were shown/hidden.
+  // Sheet mode: natural content height so the sheet can hug it with maxHeight.
   listContent: { paddingTop: Spacing.two, gap: Spacing.three },
-  listContentColumn: { paddingTop: Spacing.two, gap: Spacing.three },
+  // Column (desktop) mode: grow to fill the messages ScrollView and anchor the conversation to the
+  // bottom (just above the input), so empty space sits at the TOP — the standard chat feel.
+  listContentColumn: { paddingTop: Spacing.two, gap: Spacing.three, flexGrow: 1, justifyContent: 'flex-end' },
   bubbleRow: { flexDirection: 'row' },
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },

@@ -73,8 +73,11 @@ export function SuggestionCards({ onSelect }: Props) {
 }
 
 const styles = StyleSheet.create({
-  loading: { height: 64, alignItems: 'center', justifyContent: 'center' },
-  carousel: { marginHorizontal: -Spacing.four }, // bleed past the panel's horizontal padding
+  loading: { height: 64, alignItems: 'center', justifyContent: 'center', flexGrow: 0, flexShrink: 0 },
+  // flexGrow/flexShrink 0: react-native-web gives every ScrollView a base flexGrow:1, which makes
+  // this HORIZONTAL carousel balloon vertically to fill a flex-column parent (cards at top, dead
+  // space below). Pinning it to 0 lets it hug its content height instead.
+  carousel: { marginHorizontal: -Spacing.four, flexGrow: 0, flexShrink: 0 }, // bleed past panel padding
   carouselContent: {
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
