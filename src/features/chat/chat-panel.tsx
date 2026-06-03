@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -40,6 +40,12 @@ export function ChatPanel(props: Props) {
   const usageDate = useSubscriptionStore((s) => s.date);
   const [draft, setDraft] = useState('');
   const listRef = useRef<ScrollView>(null);
+  // Desktop column: suggestions collapse once the conversation starts to give the messages more room.
+  // Default open when no messages; auto-closes on the first send; user can re-open with the toggle.
+  const [suggestOpen, setSuggestOpen] = useState(messages.length === 0);
+  useEffect(() => {
+    if (messages.length === 1) setSuggestOpen(false);
+  }, [messages.length]);
 
   const scrollToEnd = () => requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
 
@@ -64,7 +70,24 @@ export function ChatPanel(props: Props) {
   const showConvo = isColumn || (props.mode === 'sheet' && props.expanded);
   return (
     <View style={[styles.container, isColumn && styles.containerFill, { paddingBottom: bottomPad }]}>
-      <SuggestionCards onSelect={onSend} />
+      {/* In column mode with an active conversation, collapse the carousel into a compact toggle
+          so it doesn't crowd the messages. In sheet mode (and fresh conversations) always show full. */}
+      {isColumn && messages.length > 0 ? (
+        <>
+          <Pressable
+            onPress={() => setSuggestOpen((o) => !o)}
+            style={styles.suggestToggle}
+            hitSlop={8}
+          >
+            <Text style={[styles.suggestLabel, { color: theme.textSecondary }]}>
+              {`Suggested questions ${suggestOpen ? '▴' : '▾'}`}
+            </Text>
+          </Pressable>
+          {suggestOpen && <SuggestionCards onSelect={onSend} />}
+        </>
+      ) : (
+        <SuggestionCards onSelect={onSend} />
+      )}
 
       {showConvo && (
         <ScrollView
@@ -147,6 +170,8 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },
   freeHint: { fontSize: 12, textAlign: 'center', paddingTop: Spacing.two },
+  suggestToggle: { paddingTop: Spacing.one, paddingBottom: Spacing.one, alignSelf: 'flex-start' },
+  suggestLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingTop: Spacing.two },
   input: {
     flex: 1,
