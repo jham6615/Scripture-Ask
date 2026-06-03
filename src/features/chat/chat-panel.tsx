@@ -70,9 +70,23 @@ export function ChatPanel(props: Props) {
   const showConvo = isColumn || (props.mode === 'sheet' && props.expanded);
   return (
     <View style={[styles.container, isColumn && styles.containerFill, { paddingBottom: bottomPad }]}>
-      {/* Messages: fills the available space and scrolls. In sheet mode this is hidden until the
-          sheet expands; in column mode it's always visible. */}
-      {showConvo && (
+
+      {/* ── COLUMN EMPTY STATE ──────────────────────────────────────────────────────────────────
+          No messages yet: show cards at the TOP of the panel so they're immediately visible.
+          A flex:1 spacer below them pushes the input to the bottom.
+          The ScrollView is not rendered — an empty flex:1 scroll view was what pushed the cards
+          to the middle of the screen in all previous iterations. */}
+      {isColumn && messages.length === 0 && (
+        <>
+          <SuggestionCards onSelect={onSend} />
+          <View style={styles.emptySpacer} />
+        </>
+      )}
+
+      {/* ── MESSAGES AREA ───────────────────────────────────────────────────────────────────────
+          Only rendered when there are messages. Column: flex:1 with messages bottom-anchored.
+          Sheet: bounded by convoMaxH and hidden until the sheet expands. */}
+      {showConvo && messages.length > 0 && (
         <ScrollView
           ref={listRef}
           style={isColumn ? styles.listFill : { maxHeight: convoMaxH }}
@@ -95,10 +109,10 @@ export function ChatPanel(props: Props) {
         </ScrollView>
       )}
 
-      {/* Suggestion chips live BELOW the messages and ABOVE the input — like quick-reply chips in
-          standard chat apps. This eliminates any gap between suggestions and messages.
-          In column mode with an active conversation, collapses to a compact toggle to save space.
-          In sheet mode always shown full (needed for the "reveal" peek state). */}
+      {/* ── SUGGESTION CHIPS (non-empty states) ─────────────────────────────────────────────────
+          Column + messages: collapsed toggle above input; user can expand.
+          Sheet: always shown full (needed for the "reveal" peek state).
+          Column + no messages: handled in the empty state block above. */}
       {isColumn && messages.length > 0 ? (
         <>
           <Pressable
@@ -112,9 +126,9 @@ export function ChatPanel(props: Props) {
           </Pressable>
           {suggestOpen && <SuggestionCards onSelect={onSend} />}
         </>
-      ) : (
+      ) : !isColumn ? (
         <SuggestionCards onSelect={onSend} />
-      )}
+      ) : null}
 
       {!isPremium && (
         <Text style={[styles.freeHint, { color: theme.textSecondary }]}>
@@ -175,6 +189,9 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '85%', borderRadius: 18, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
   bubbleText: { fontSize: 16, lineHeight: 22 },
   freeHint: { fontSize: 12, textAlign: 'center', paddingTop: Spacing.two },
+  // Fills the gap between the cards and the input in the empty-state layout so the input
+  // stays pinned to the bottom of the column even when there are no messages.
+  emptySpacer: { flex: 1 },
   suggestToggle: { paddingTop: Spacing.one, paddingBottom: Spacing.one, alignSelf: 'flex-start' },
   suggestLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.two, paddingTop: Spacing.two },
