@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Spacing } from '@/constants/theme';
@@ -62,6 +62,30 @@ export function ChatPanel(props: Props) {
     onSend(draft);
     setDraft('');
   };
+
+  // Web only: Enter submits, Shift+Enter inserts a newline (standard chat UX). We attach a real
+  // DOM keydown listener (not RN's onKeyPress) because only the DOM event reliably exposes
+  // `isComposing` — the flag that prevents submitting mid-IME-composition (Korean/Japanese/Chinese),
+  // where Enter confirms the character and must NOT send. Native handles submit via
+  // submitBehavior="submit" on the TextInput below, so this is gated to web.
+  const inputRef = useRef<TextInput>(null);
+  // Ref-mirror onSendPress so the listener always calls the latest closure (fresh draft/canSend)
+  // without re-binding on every keystroke.
+  const onSendPressRef = useRef(onSendPress);
+  onSendPressRef.current = onSendPress;
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = inputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!node) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        onSendPressRef.current();
+      }
+    };
+    node.addEventListener('keydown', onKeyDown);
+    return () => node.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const isColumn = props.mode === 'column';
   // Narrow once: pull the sheet-only callbacks out so the JSX stays free of mode discriminator checks.
@@ -140,6 +164,7 @@ export function ChatPanel(props: Props) {
 
       <View style={styles.inputRow}>
         <TextInput
+          ref={inputRef}
           style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
           value={draft}
           onChangeText={setDraft}
