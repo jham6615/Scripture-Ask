@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,13 +15,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useAuth } from '@/features/auth/auth-context';
+import { deleteAccount } from '@/features/auth/delete-account';
+import {
+  AppleAuthentication,
+  isAppleSignInAvailable,
+  signInWithApple,
+} from '@/features/auth/sign-in-with-apple';
 import { signInWithGoogle } from '@/features/auth/sign-in-with-google';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 import { useSubscriptionStore } from '@/store/subscription-store';
 
 export default function AuthScreen() {
   const theme = useTheme();
+  const scheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { session } = useAuth();
@@ -31,6 +40,18 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    isAppleSignInAvailable().then((ok) => {
+      if (!cancelled) setAppleAvailable(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (session) {
     return (
@@ -66,6 +87,45 @@ export default function AuthScreen() {
           style={styles.linkBtn}
         >
           <Text style={[styles.link, { color: theme.textSecondary }]}>Sign out</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => {
+            Alert.alert(
+              'Delete account',
+              'This permanently deletes your account, saved conversations, and subscription record. This cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setDeleting(true);
+                    try {
+                      await deleteAccount();
+                      await supabase.auth.signOut();
+                      router.replace('/');
+                    } catch (e) {
+                      Alert.alert(
+                        'Could not delete account',
+                        e instanceof Error ? e.message : 'Please try again.',
+                      );
+                    } finally {
+                      setDeleting(false);
+                    }
+                  },
+                },
+              ],
+            );
+          }}
+          disabled={deleting}
+          style={styles.linkBtn}
+        >
+          {deleting ? (
+            <ActivityIndicator color={theme.textSecondary} />
+          ) : (
+            <Text style={[styles.link, styles.destructive]}>Delete account</Text>
+          )}
         </Pressable>
       </View>
     );
@@ -111,6 +171,22 @@ export default function AuthScreen() {
     }
   };
 
+  const onApple = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await signInWithApple();
+      router.back();
+    } catch (e) {
+      // The Apple sheet throws ERR_REQUEST_CANCELED when the user dismisses it — not a real error.
+      const code = (e as { code?: string })?.code;
+      if (code === 'ERR_REQUEST_CANCELED') return;
+      setMessage(e instanceof Error ? e.message : 'Apple sign-in failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
       <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + Spacing.five }]}>
@@ -118,8 +194,26 @@ export default function AuthScreen() {
           {mode === 'signUp' ? 'Create your account' : 'Welcome back'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          {mode === 'signUp' ? 'Sign up to explore with Beacon Bible.' : 'Sign in to continue.'}
+          {mode === 'signUp' ? 'Sign up to explore with Scripture Ask.' : 'Sign in to continue.'}
         </Text>
+
+        {appleAvailable && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={
+              mode === 'signUp'
+                ? AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP
+                : AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+            }
+            buttonStyle={
+              scheme === 'dark'
+                ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+            }
+            cornerRadius={14}
+            style={styles.appleBtn}
+            onPress={onApple}
+          />
+        )}
 
         <Pressable
           onPress={onGoogle}
@@ -197,6 +291,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: '700' },
   subtitle: { fontSize: 15, marginTop: -Spacing.one, marginBottom: Spacing.one },
   input: { borderRadius: 12, paddingHorizontal: Spacing.three, paddingVertical: Spacing.three, fontSize: 16 },
+  appleBtn: { height: 50 },
   googleBtn: {
     borderWidth: 1,
     borderRadius: 14,
@@ -206,6 +301,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   googleText: { fontSize: 16, fontWeight: '600' },
+  destructive: { color: '#c0392b', fontWeight: '600' },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   line: { flex: 1, height: 1 },
   or: { fontSize: 13 },

@@ -22,6 +22,8 @@ import { useSelectionStore } from '@/store/selection-store';
 import { useVersionStore } from '@/store/versions-store';
 import { BiblePicker } from './bible-picker';
 import { ChapterPage } from './chapter-page';
+import { PickerDropdown } from './picker-dropdown';
+import { ReferenceButton } from './reference-button';
 import { VersionPicker } from './version-picker';
 
 // Static data: building the whole-Bible page list and the book summary doesn't need to re-run
@@ -163,6 +165,11 @@ export function ReaderScreen(props: Props) {
 
   const hideHistory = props.mode === 'column' && props.hideHistoryButton;
 
+  // Keep the last-opened picker rendered through PickerDropdown's close animation.
+  const lastPickerRef = useRef<'book' | 'version'>('book');
+  if (picker !== 'none') lastPickerRef.current = picker;
+  const activePicker = lastPickerRef.current;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <View style={styles.header} onLayout={(e) => setHeaderH(Math.round(e.nativeEvent.layout.height))}>
@@ -176,19 +183,13 @@ export function ReaderScreen(props: Props) {
         </Pressable>
 
         <View style={styles.center}>
-          <Pressable onPress={() => setPicker(picker === 'book' ? 'none' : 'book')} hitSlop={8}>
-            <View style={styles.titleRow}>
-              <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
-                {current ? `${current.bookName} ${current.chapter}` : 'Bible'}
-              </Text>
-              <Text style={[styles.chevron, { color: theme.textSecondary }]}>{picker === 'book' ? '▴' : '▾'}</Text>
-            </View>
-          </Pressable>
-          <Pressable onPress={() => setPicker(picker === 'version' ? 'none' : 'version')} hitSlop={8}>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              {versionCode.toUpperCase()} {picker === 'version' ? '▴' : '▾'}
-            </Text>
-          </Pressable>
+          <ReferenceButton
+            bookLabel={current ? `${current.bookName} ${current.chapter}` : 'Bible'}
+            versionLabel={versionCode.toUpperCase()}
+            active={picker === 'none' ? null : picker}
+            onPressBook={() => setPicker((p) => (p === 'book' ? 'none' : 'book'))}
+            onPressVersion={() => setPicker((p) => (p === 'version' ? 'none' : 'version'))}
+          />
         </View>
 
         <Pressable
@@ -261,41 +262,39 @@ export function ReaderScreen(props: Props) {
         />
       )}
 
-      {/* Pickers are absolute overlays anchored under the header so they drop over the chapter
-          instead of pushing it down. Tapping outside dismisses. */}
-      {picker !== 'none' && (
-        <>
-          <Pressable
-            style={[styles.backdrop, { top: insets.top + headerH }]}
-            onPress={() => setPicker('none')}
+      {/* Book/version pickers slide down from under the header. PickerDropdown keeps the last content
+          mounted through its close animation, so we render whichever picker was last active. */}
+      <PickerDropdown open={picker !== 'none'} onClose={() => setPicker('none')} top={insets.top + headerH}>
+        {activePicker === 'book' ? (
+          <BiblePicker
+            books={BOOKS}
+            currentBookId={current?.bookId ?? DEFAULT_BOOK_ID}
+            currentChapter={current?.chapter ?? 1}
+            onSelect={jumpTo}
           />
-          <View style={[styles.overlay, { top: insets.top + headerH, backgroundColor: theme.background }]}>
-            {picker === 'book' && (
-              <BiblePicker books={BOOKS} currentBookId={current?.bookId ?? DEFAULT_BOOK_ID} onSelect={jumpTo} />
-            )}
-            {picker === 'version' && (
-              <VersionPicker
-                currentCode={versionCode}
-                onSelect={(code, name) => {
-                  setVersion(code, name);
-                  setPicker('none');
-                }}
-              />
-            )}
-          </View>
-        </>
-      )}
+        ) : (
+          <VersionPicker
+            currentCode={versionCode}
+            onSelect={(code, name) => {
+              setVersion(code, name);
+              setPicker('none');
+            }}
+          />
+        )}
+      </PickerDropdown>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  // position:relative makes this the containing block for the absolute PickerDropdown, so on desktop
+  // the dropdown confines to the reader pane instead of spilling under the chat column.
+  container: { flex: 1, position: 'relative' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.four,
+    gap: Spacing.three,
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
   },
@@ -305,11 +304,5 @@ const styles = StyleSheet.create({
   historyIcon: { fontSize: 20 },
   navButton: { width: 40, alignItems: 'center', justifyContent: 'center' },
   navIcon: { fontSize: 30, lineHeight: 34 },
-  center: { alignItems: 'center', flexShrink: 1 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
-  title: { fontSize: 18, fontWeight: '600' },
-  chevron: { fontSize: 13 },
-  subtitle: { fontSize: 12, fontWeight: '600', marginTop: 1, letterSpacing: 0.4 },
-  backdrop: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 25 },
-  overlay: { position: 'absolute', left: 0, right: 0, zIndex: 26, maxHeight: 420, elevation: 8 },
+  center: { flexShrink: 1, alignItems: 'center' },
 });

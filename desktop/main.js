@@ -7,7 +7,12 @@
 
 const { app, BrowserWindow, shell } = require('electron');
 
-const APP_URL = 'https://beacon-bible.vercel.app';
+// Production loads the deployed site; dev loads the local Expo web server so you can see uncommitted
+// changes in the desktop shell. Run `npm run dev` (sets ELECTRON_DEV=1) with `npx expo start --web`
+// already running on 8081. Override the dev target with ELECTRON_START_URL if your port differs.
+const PROD_URL = 'https://beacon-bible.vercel.app';
+const DEV_URL = process.env.ELECTRON_START_URL || 'http://localhost:8081';
+const APP_URL = process.env.ELECTRON_DEV ? DEV_URL : PROD_URL;
 const APP_ORIGIN = new URL(APP_URL).origin;
 
 /** A normal Chrome user-agent (strip the Electron/app tokens) so external auth pages don't flag an embedded browser. */

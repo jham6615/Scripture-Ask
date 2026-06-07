@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Beacon Bible",
+    "name": "Scripture Ask",
     "slug": "bible-friend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.shuttlementor.biblefriend",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -29,13 +30,16 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#f4ecd9",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+            "imageWidth": 200
           }
         }
       ]

@@ -1,13 +1,14 @@
 {
   "name": "beacon-bible-desktop",
   "version": "1.0.0",
-  "description": "Beacon Bible desktop app",
+  "description": "Scripture Ask desktop app",
   "main": "main.js",
   "author": "Jungho Ham",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "start": "electron .",
+    "dev": "ELECTRON_DEV=1 electron .",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win"
@@ -18,7 +19,7 @@
   },
   "build": {
     "appId": "com.shuttlementor.biblefriend",
-    "productName": "Beacon Bible",
+    "productName": "Scripture Ask",
     "directories": {
       "output": "dist",
       "buildResources": "build"

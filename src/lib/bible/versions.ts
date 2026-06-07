@@ -41,8 +41,10 @@ export async function fetchVersions(): Promise<VersionMeta[]> {
     .map<VersionMeta>((t) => ({
       code: t.abbreviation,
       name: t.translation,
-      language: t.lang ?? 'en',
-      languageName: t.language ?? 'Other',
+      language: t.lang || 'en',
+      // `||` (not `??`) so an empty-string language name from the catalog falls back to "Other"
+      // instead of creating a blank, unnamed language group.
+      languageName: t.language || 'Other',
       direction: String(t.direction).toUpperCase() === 'RTL' ? 'rtl' : 'ltr',
     }));
   list.sort((a, b) => a.languageName.localeCompare(b.languageName) || a.name.localeCompare(b.name));
