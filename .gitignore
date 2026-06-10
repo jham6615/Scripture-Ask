@@ -42,3 +42,6 @@ example
 /ios
 /android
 .vercel
+
+# Supabase CLI local state (regenerated whenever the CLI runs against this project)
+supabase/.temp/

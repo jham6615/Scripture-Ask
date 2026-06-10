@@ -28,13 +28,15 @@ const CREAM_DEEP = '#e6dcc4'; // outer vignette edge
 const PAGE = '#fbf5e6';
 const INK = '#1a1816';
 const INK_SOFT = '#2b2118';
-const RIBBON = '#a83e2b'; // warm scriptural red
+const SPARK = '#1c9d9b'; // teal "spark" above the book — ask, and receive light
+const SPARK_SOFT = '#7fcecd'; // lighter teal for the small flanking sparkles
 
 // -- SVG ------------------------------------------------------------------------------------------
 /**
  * Master icon SVG — 1024×1024. Open book viewed roughly head-on with slight depth, a centered spine
- * shadow, soft cream pages with a few text-line hints, and a warm ribbon bookmark draping over the
- * top. Designed to read at 29×29 (smallest iOS tray size): silhouette stays a book, no fine detail.
+ * shadow, soft cream pages with a few text-line hints, and a 4-pointed teal "spark" rising above
+ * (flanked by two smaller sparkles) — the visual rhyme for "ask, and receive light." Designed to
+ * read at 29×29 (smallest iOS tray size): silhouette stays a book + spark, no fine detail.
  *
  * Background uses a radial vignette to match the existing "B" icon's warmth.
  */
@@ -62,9 +64,9 @@ const masterSVG = ({ withBackground = true }) => `
 
   ${withBackground ? `<rect x="0" y="0" width="1024" height="1024" fill="url(#bg)"/>` : ''}
 
-  <!-- Book — open, viewed slightly tilted. Centered visually a bit above middle to leave room for the
-       ribbon to drape. The outer ink stroke forms the book cover; the inner pages are layered. -->
-  <g transform="translate(512 540)">
+  <!-- Book — open, viewed slightly tilted. Pushed down a touch from center to leave room for the
+       sparkle constellation above. The outer ink stroke forms the book cover; the inner pages are layered. -->
+  <g transform="translate(512 600)">
     <!-- Drop shadow under the book for soft grounding -->
     <ellipse cx="0" cy="300" rx="380" ry="28" fill="rgba(26,24,22,0.18)"/>
 
@@ -113,16 +115,40 @@ const masterSVG = ({ withBackground = true }) => `
 
     <!-- Spine shadow — gives the book its open-book depth at the binding -->
     <rect x="-25" y="-275" width="50" height="555" fill="url(#spine)"/>
+  </g>
 
-    <!-- Ribbon bookmark draping from the top of the right page. Two-tone fold for character. -->
+  <!-- Sparkle constellation above the book: one large 4-pointed star centered, flanked by two
+       smaller ones for visual rhythm. 4-pointed-star path: long N/S arms, shorter E/W, joined at
+       center with concave curves so each point is sharp without looking like a cross. -->
+  <!-- Large central spark -->
+  <g transform="translate(512 215)">
     <path d="
-      M 200 -276
-      L 240 -276
-      L 240 -120
-      L 220 -100
-      L 200 -120
-      Z" fill="${RIBBON}"/>
-    <path d="M 200 -276 L 240 -276 L 240 -270 L 200 -270 Z" fill="rgba(0,0,0,0.18)"/>
+      M 0 -100
+      C 10 -36, 36 -10, 100 0
+      C 36 10, 10 36, 0 100
+      C -10 36, -36 10, -100 0
+      C -36 -10, -10 -36, 0 -100
+      Z" fill="${SPARK}"/>
+  </g>
+  <!-- Left small spark -->
+  <g transform="translate(395 225)">
+    <path d="
+      M 0 -35
+      C 4 -14, 12 -4, 35 0
+      C 12 4, 4 14, 0 35
+      C -4 14, -12 4, -35 0
+      C -12 -4, -4 -14, 0 -35
+      Z" fill="${SPARK_SOFT}"/>
+  </g>
+  <!-- Right small spark -->
+  <g transform="translate(635 230)">
+    <path d="
+      M 0 -28
+      C 3 -11, 10 -3, 28 0
+      C 10 3, 3 11, 0 28
+      C -3 11, -10 3, -28 0
+      C -10 -3, -3 -11, 0 -28
+      Z" fill="${SPARK_SOFT}"/>
   </g>
 </svg>
 `.trim();

@@ -173,16 +173,25 @@ export function ReaderScreen(props: Props) {
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <View style={styles.header} onLayout={(e) => setHeaderH(Math.round(e.nativeEvent.layout.height))}>
-        <Pressable
-          onPress={() => goToPage(pageIndex - 1)}
-          disabled={pageIndex === 0}
-          hitSlop={12}
-          style={styles.navButton}
-        >
-          <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === 0 ? 0.25 : 1 }]}>‹</Text>
-        </Pressable>
+        <View style={styles.sideCluster}>
+          {!hideHistory && (
+            <Pressable onPress={() => openHistory(true)} hitSlop={10} style={styles.historyButton}>
+              <Text style={[styles.historyIcon, { color: theme.text }]}>☰</Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => goToPage(pageIndex - 1)}
+            disabled={pageIndex === 0}
+            hitSlop={12}
+            style={styles.navButton}
+          >
+            <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === 0 ? 0.25 : 1 }]}>‹</Text>
+          </Pressable>
+        </View>
 
-        <View style={styles.center}>
+        {/* Absolutely centered so the title pill stays at true screen-center regardless of the
+            side clusters' widths (signed-out "Sign in" pill is much wider than signed-in avatar). */}
+        <View style={styles.center} pointerEvents="box-none">
           <ReferenceButton
             bookLabel={current ? `${current.bookName} ${current.chapter}` : 'Bible'}
             versionLabel={versionCode.toUpperCase()}
@@ -192,27 +201,19 @@ export function ReaderScreen(props: Props) {
           />
         </View>
 
-        <Pressable
-          onPress={() => goToPage(pageIndex + 1)}
-          disabled={pageIndex === lastIndex}
-          hitSlop={12}
-          style={styles.navButton}
-        >
-          <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === lastIndex ? 0.25 : 1 }]}>›</Text>
-        </Pressable>
-      </View>
-
-      <View style={[styles.account, { top: insets.top }]} pointerEvents="box-none">
-        <AccountButton />
-      </View>
-
-      {!hideHistory && (
-        <View style={[styles.history, { top: insets.top }]} pointerEvents="box-none">
-          <Pressable onPress={() => openHistory(true)} hitSlop={10} style={styles.historyButton}>
-            <Text style={[styles.historyIcon, { color: theme.text }]}>☰</Text>
+        <View style={styles.sideClusterRight}>
+          <Pressable
+            onPress={() => goToPage(pageIndex + 1)}
+            disabled={pageIndex === lastIndex}
+            hitSlop={12}
+            style={styles.navButton}
+          >
+            <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === lastIndex ? 0.25 : 1 }]}>›</Text>
           </Pressable>
+          <AccountButton />
         </View>
-      )}
+      </View>
+
 
       {Platform.OS === 'web' ? (
         // On web there is no swipe gesture, so instead of a virtualized horizontal FlatList
@@ -290,19 +291,31 @@ const styles = StyleSheet.create({
   // position:relative makes this the containing block for the absolute PickerDropdown, so on desktop
   // the dropdown confines to the reader pane instead of spilling under the chat column.
   container: { flex: 1, position: 'relative' },
+  // position:relative needed so the absolute center pill is positioned within the header.
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.three,
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
+    position: 'relative',
   },
-  account: { position: 'absolute', right: Spacing.four, paddingVertical: Spacing.two, zIndex: 20 },
-  history: { position: 'absolute', left: Spacing.four, paddingVertical: Spacing.two, zIndex: 20 },
+  sideCluster: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  sideClusterRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   historyButton: { height: 32, justifyContent: 'center' },
   historyIcon: { fontSize: 20 },
-  navButton: { width: 40, alignItems: 'center', justifyContent: 'center' },
+  navButton: { width: 32, alignItems: 'center', justifyContent: 'center' },
   navIcon: { fontSize: 30, lineHeight: 34 },
-  center: { flexShrink: 1, alignItems: 'center' },
+  // True-center the title pill: position absolutely across the header's full width and let alignItems
+  // do the centering. pointerEvents="box-none" on the wrapper lets clicks fall through to the side
+  // clusters underneath where the pill doesn't actually paint.
+  center: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

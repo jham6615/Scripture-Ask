@@ -91,32 +91,40 @@ export default function AuthScreen() {
 
         <Pressable
           onPress={() => {
-            Alert.alert(
-              'Delete account',
-              'This permanently deletes your account, saved conversations, and subscription record. This cannot be undone.',
-              [
+            const message =
+              'This permanently deletes your account, saved conversations, and subscription record. This cannot be undone.';
+            const runDelete = async () => {
+              setDeleting(true);
+              try {
+                await deleteAccount();
+                await supabase.auth.signOut();
+                router.replace('/');
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : 'Please try again.';
+                if (Platform.OS === 'web') {
+                  // eslint-disable-next-line no-alert
+                  window.alert(`Could not delete account: ${msg}`);
+                } else {
+                  Alert.alert('Could not delete account', msg);
+                }
+              } finally {
+                setDeleting(false);
+              }
+            };
+
+            // React Native's Alert.alert is a no-op on react-native-web — use window.confirm there
+            // so the click actually surfaces something to the user.
+            if (Platform.OS === 'web') {
+              // eslint-disable-next-line no-alert
+              if (window.confirm(`Delete account?\n\n${message}`)) {
+                void runDelete();
+              }
+            } else {
+              Alert.alert('Delete account', message, [
                 { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: async () => {
-                    setDeleting(true);
-                    try {
-                      await deleteAccount();
-                      await supabase.auth.signOut();
-                      router.replace('/');
-                    } catch (e) {
-                      Alert.alert(
-                        'Could not delete account',
-                        e instanceof Error ? e.message : 'Please try again.',
-                      );
-                    } finally {
-                      setDeleting(false);
-                    }
-                  },
-                },
-              ],
-            );
+                { text: 'Delete', style: 'destructive', onPress: runDelete },
+              ]);
+            }
           }}
           disabled={deleting}
           style={styles.linkBtn}

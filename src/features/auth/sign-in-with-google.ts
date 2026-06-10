@@ -24,7 +24,14 @@ export async function signInWithGoogle(): Promise<void> {
       options: origin ? { redirectTo: `${origin}/auth` } : undefined,
     });
     if (error) throw error;
-    return; // the page redirects; useOAuthCallback exchanges the code on return
+    // signInWithOAuth schedules window.location.assign(googleUrl) and returns synchronously.
+    // If we resolved here, the caller would race the browser navigation by calling router.back() in
+    // the SAME JS turn — history.back() lands before the browser fires the OAuth navigation, so the
+    // user ends up on the previous page instead of Google. Block here forever: the page is about to
+    // navigate away anyway, so a never-resolving promise is the right shape. useOAuthCallback
+    // handles the round-trip back to /auth?code=... on the next page load.
+    await new Promise<never>(() => {});
+    return;
   }
 
   const redirectTo = Linking.createURL('auth-callback');
