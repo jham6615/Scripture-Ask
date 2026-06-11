@@ -28,6 +28,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: isDev
         ? `${config.ios?.bundleIdentifier}.dev`
         : config.ios?.bundleIdentifier,
+      // Dev builds load the Metro server over plain http (LAN IPs, exp.direct tunnel), which iOS
+      // App Transport Security blocks by default ("requires the use of a secure connection").
+      // Allow cleartext in the DEV variant only — production keeps Apple's strict default.
+      ...(isDev && {
+        infoPlist: {
+          ...config.ios?.infoPlist,
+          NSAppTransportSecurity: { NSAllowsArbitraryLoads: true },
+        },
+      }),
     },
     android: {
       ...config.android,

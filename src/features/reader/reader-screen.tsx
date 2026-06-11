@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -39,6 +40,14 @@ const findPageIndex = (bookId: string, chapter: number) => {
   const i = PAGES.findIndex((p) => p.bookId === bookId && p.chapter === chapter);
   return i >= 0 ? i : DEFAULT_INDEX;
 };
+
+// Header geometry shared by the pill-cap math and styles.header below. Edge padding is deliberately
+// tighter than the body text's so narrow phones keep enough budget for the centered pill.
+const HEADER_PAD = Spacing.three;
+const CLUSTER_BREATH = Spacing.one;
+// Generous vertically, slim horizontally so the arrows' slop never swallows taps meant for the
+// adjacent corner buttons or the pill.
+const ARROW_HIT_SLOP = { top: 12, bottom: 12, left: 4, right: 4 };
 
 type Props =
   | {
@@ -170,10 +179,32 @@ export function ReaderScreen(props: Props) {
   if (picker !== 'none') lastPickerRef.current = picker;
   const activePicker = lastPickerRef.current;
 
+  // Measure the side clusters so the centered pill can be capped to the space they leave free.
+  // Seeded with the widest realistic values (☰ + arrow / arrow + "Sign in") so the first frame
+  // can't overlap; onLayout then relaxes the cap to the real widths.
+  const [clusterW, setClusterW] = useState({ left: 64, right: 110 });
+  const onClusterLayout = (side: 'left' | 'right') => (e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setClusterW((c) => (Math.abs(c[side] - w) <= 1 ? c : { ...c, [side]: w }));
+  };
+
+  // Pill placement: true screen-center while the symmetric free space is comfortable; on tight
+  // widths (narrow phones, signed-out "Sign in" widening the right cluster) fall back to centering
+  // within the actual gap between the clusters — a few points off true center, but the pill is
+  // never overlapped or clipped. The pill ellipsizes (version first) once it hits the cap.
+  const reservedL = HEADER_PAD + clusterW.left + CLUSTER_BREATH;
+  const reservedR = HEADER_PAD + clusterW.right + CLUSTER_BREATH;
+  const symmetric = Math.max(reservedL, reservedR);
+  const trueCenter = width - 2 * symmetric >= 220;
+  const centerInsets = trueCenter
+    ? { left: symmetric, right: symmetric }
+    : { left: reservedL, right: reservedR };
+  const pillMaxWidth = Math.max(0, width - centerInsets.left - centerInsets.right);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <View style={styles.header} onLayout={(e) => setHeaderH(Math.round(e.nativeEvent.layout.height))}>
-        <View style={styles.sideCluster}>
+        <View style={styles.sideCluster} onLayout={onClusterLayout('left')}>
           {!hideHistory && (
             <Pressable onPress={() => openHistory(true)} hitSlop={10} style={styles.historyButton}>
               <Text style={[styles.historyIcon, { color: theme.text }]}>☰</Text>
@@ -182,30 +213,29 @@ export function ReaderScreen(props: Props) {
           <Pressable
             onPress={() => goToPage(pageIndex - 1)}
             disabled={pageIndex === 0}
-            hitSlop={12}
+            hitSlop={ARROW_HIT_SLOP}
             style={styles.navButton}
           >
             <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === 0 ? 0.25 : 1 }]}>‹</Text>
           </Pressable>
         </View>
 
-        {/* Absolutely centered so the title pill stays at true screen-center regardless of the
-            side clusters' widths (signed-out "Sign in" pill is much wider than signed-in avatar). */}
-        <View style={styles.center} pointerEvents="box-none">
+        <View style={[styles.center, centerInsets]} pointerEvents="box-none">
           <ReferenceButton
             bookLabel={current ? `${current.bookName} ${current.chapter}` : 'Bible'}
             versionLabel={versionCode.toUpperCase()}
             active={picker === 'none' ? null : picker}
+            maxWidth={pillMaxWidth}
             onPressBook={() => setPicker((p) => (p === 'book' ? 'none' : 'book'))}
             onPressVersion={() => setPicker((p) => (p === 'version' ? 'none' : 'version'))}
           />
         </View>
 
-        <View style={styles.sideClusterRight}>
+        <View style={styles.sideClusterRight} onLayout={onClusterLayout('right')}>
           <Pressable
             onPress={() => goToPage(pageIndex + 1)}
             disabled={pageIndex === lastIndex}
-            hitSlop={12}
+            hitSlop={ARROW_HIT_SLOP}
             style={styles.navButton}
           >
             <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === lastIndex ? 0.25 : 1 }]}>›</Text>
@@ -296,7 +326,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: HEADER_PAD,
     paddingVertical: Spacing.two,
     position: 'relative',
   },
@@ -306,13 +336,11 @@ const styles = StyleSheet.create({
   historyIcon: { fontSize: 20 },
   navButton: { width: 32, alignItems: 'center', justifyContent: 'center' },
   navIcon: { fontSize: 30, lineHeight: 34 },
-  // True-center the title pill: position absolutely across the header's full width and let alignItems
-  // do the centering. pointerEvents="box-none" on the wrapper lets clicks fall through to the side
-  // clusters underneath where the pill doesn't actually paint.
+  // The pill's absolute slot. Horizontal insets are injected per-render (measured cluster widths) so
+  // the pill centers in the free space and can never paint over the corner buttons. The wrapper is
+  // box-none so stray taps in the empty slot fall through.
   center: {
     position: 'absolute',
-    left: 0,
-    right: 0,
     top: 0,
     bottom: 0,
     alignItems: 'center',
