@@ -2,28 +2,25 @@
 //
 // The app sends ready-made chat messages; this adds the secret OpenAI key (Secret OPENAI_API_KEY,
 // never written in code) and returns the model's reply. Before calling the model it decides whether
-// the caller may, so the free tier and the abuse caps can't be bypassed by reinstalling the app or by
-// calling this endpoint directly. Counting happens in public.ai_usage (migration 0004).
+// the caller may, so the free tier and the abuse caps can't be bypassed by editing the app or calling
+// this endpoint directly. Counting happens in public.ai_usage (migration 0004), per Supabase user.
+// Caveat: a signed-out reader who reinstalls gets a new anonymous user, and with it one more free
+// question; Supabase's anonymous sign-in rate limit (and CAPTCHA, if enabled) bounds that.
 //
-// Who is calling?
-//   - Current builds (v1.2.0+) always send a Supabase user JWT (a real account, or the anonymous user
-//     the app creates for a signed-out reader) plus `kind: 'chat' | 'suggestions'`.
-//   - Legacy builds (v1.1.0 and older) send no `kind` and usually no user JWT. Until AI_REQUIRE_USER is
-//     "true" they get through on a per-IP daily cap, so the App Store build keeps working while people
-//     update. Flip AI_REQUIRE_USER once nearly everyone is on v1.2.0+.
+// Every request must carry:
+//   - a Supabase user JWT: a real account, or the anonymous user the app creates for a signed-out
+//     reader (src/lib/api.ts, ensureAiSession). No user → 401 { code: 'auth_required' }.
+//   - `kind: 'chat' | 'suggestions'`. Anything else → 400.
 //
 // Limits (each can be overridden with an Edge Function secret of the same name):
 //   AI_FREE_CHAT_LIMIT          1    lifetime chat questions for a non-premium user
 //   AI_PREMIUM_DAILY_LIMIT      300  chat questions per day for premium (an abuse ceiling, not a product limit)
 //   AI_SUGGESTIONS_DAILY_LIMIT  60   suggestion-card generations per user per day
-//   AI_LEGACY_FREE_DAILY_LIMIT  5    chat per day for signed-in, non-premium users on legacy builds (old behaviour)
-//   AI_LEGACY_IP_DAILY_LIMIT    100  requests per IP per day for legacy builds with no user session
-//   AI_REQUIRE_USER             false
 //
 // Premium = any active row in public.entitlements (written by stripe-webhook / revenuecat-webhook).
 // Auto-injected by Supabase: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
-// config.toml keeps verify_jwt = false so legacy publishable-key calls still reach this code; the
-// user check happens below instead.
+// config.toml sets verify_jwt = false: the gateway doesn't check the JWT, this function does (below),
+// so it can answer with a clear auth_required code instead of a bare gateway 401.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -45,10 +42,7 @@ const LIMITS = {
   freeChat: envInt('AI_FREE_CHAT_LIMIT', 1),
   premiumDaily: envInt('AI_PREMIUM_DAILY_LIMIT', 300),
   suggestionsDaily: envInt('AI_SUGGESTIONS_DAILY_LIMIT', 60),
-  legacyFreeDaily: envInt('AI_LEGACY_FREE_DAILY_LIMIT', 5),
-  legacyIpDaily: envInt('AI_LEGACY_IP_DAILY_LIMIT', 100),
 };
-const REQUIRE_USER = Deno.env.get('AI_REQUIRE_USER') === 'true';
 
 // Hard caps on a single request, whatever the client asks for. The message caps are generous on
 // purpose: the app resends the whole conversation each turn, and long chats must keep working.
@@ -65,6 +59,7 @@ type Denial = { status: number; code: 'auth_required' | 'paywall' | 'rate_limite
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: cors });
 const today = () => new Date().toISOString().slice(0, 10);
+const isKind = (v: unknown): v is Kind => v === 'chat' || v === 'suggestions';
 
 const AUTH_REQUIRED: Denial = { status: 401, code: 'auth_required', error: 'Please sign in to ask a question.' };
 const PAYWALL: Denial = {
@@ -88,16 +83,6 @@ async function callerUserId(req: Request): Promise<string | null> {
   return data.user.id;
 }
 
-const clientIp = (req: Request): string =>
-  (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.headers.get('cf-connecting-ip') || 'unknown';
-
-/** Short salted hash so raw IPs are never stored. */
-async function hashIp(ip: string): Promise<string> {
-  const salt = Deno.env.get('AI_IP_SALT') ?? 'beacon-bible';
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${salt}:${ip}`));
-  return Array.from(new Uint8Array(digest).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function isPremium(userId: string): Promise<boolean> {
   const { data, error } = await admin.from('entitlements').select('is_active').eq('user_id', userId);
   if (error) throw new Error(`entitlement check failed: ${error.message}`);
@@ -119,23 +104,14 @@ async function take(subject: string, bucket: string, limit: number, onFull: Deni
   return (await consume(subject, bucket, limit)) ? { subject, bucket } : onFull;
 }
 
-/** Decide whether this request may call the model, and record it against the right bucket. */
-async function authorize(req: Request, userId: string | null, kind: Kind, legacy: boolean): Promise<Grant | Denial> {
-  if (!userId) {
-    // Current builds always create a session first, so a missing user means sign-in is needed.
-    if (!legacy || REQUIRE_USER) return AUTH_REQUIRED;
-    return take(`ip:${await hashIp(clientIp(req))}`, `legacy:${today()}`, LIMITS.legacyIpDaily, RATE_LIMITED);
-  }
-
+/** Decide whether this user may call the model, and record it against the right bucket. */
+async function authorize(userId: string, kind: Kind): Promise<Grant | Denial> {
   const subject = `user:${userId}`;
   if (kind === 'suggestions') {
     return take(subject, `suggest:${today()}`, LIMITS.suggestionsDaily, RATE_LIMITED);
   }
   if (await isPremium(userId)) {
     return take(subject, `chat:${today()}`, LIMITS.premiumDaily, RATE_LIMITED);
-  }
-  if (legacy) {
-    return take(subject, `legacy_free:${today()}`, LIMITS.legacyFreeDaily, PAYWALL);
   }
   return take(subject, 'free_chat', LIMITS.freeChat, PAYWALL);
 }
@@ -163,22 +139,21 @@ Deno.serve(async (req) => {
   let grant: Grant | null = null;
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const kind = body.kind;
+    if (!isKind(kind)) return json({ error: "kind must be 'chat' or 'suggestions'" }, 400);
     const messages = validMessages(body.messages);
     if (!messages) return json({ error: 'messages[] is missing, malformed, or too long' }, 400);
 
-    const requestedTokens = Number(body.maxTokens) > 0 ? Math.floor(Number(body.maxTokens)) : 600;
-    const legacy = body.kind !== 'chat' && body.kind !== 'suggestions';
-    // Legacy builds don't label their calls; their suggestion cards are the only small requests (400 tokens).
-    const kind: Kind = legacy ? (requestedTokens <= MAX_TOKENS.suggestions ? 'suggestions' : 'chat') : (body.kind as Kind);
-
     const userId = await callerUserId(req);
-    const decision = await authorize(req, userId, kind, legacy);
+    if (!userId) return json({ error: AUTH_REQUIRED.error, code: AUTH_REQUIRED.code }, AUTH_REQUIRED.status);
+    const decision = await authorize(userId, kind);
     if ('code' in decision) return json({ error: decision.error, code: decision.code }, decision.status);
     grant = decision;
 
     const key = Deno.env.get('OPENAI_API_KEY');
     if (!key) throw new Error('OPENAI_API_KEY is not set');
 
+    const requestedTokens = Number(body.maxTokens) > 0 ? Math.floor(Number(body.maxTokens)) : 600;
     const rawTemp = Number(body.temperature);
     const temperature = Number.isFinite(rawTemp) ? Math.min(Math.max(rawTemp, 0), 1.5) : 0.7;
 

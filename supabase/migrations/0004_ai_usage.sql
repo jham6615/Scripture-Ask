@@ -5,8 +5,7 @@
 -- directly). Only the service role touches this table: RLS is on and there are no policies.
 --
 -- subject: 'user:<uuid>' for Supabase users (real accounts and the anonymous users the app creates
---          for signed-out readers), or 'ip:<sha256 prefix>' for legacy app builds (v1.1.0 and older)
---          that call without a user session. Raw IP addresses are never stored.
+--          for signed-out readers).
 -- bucket : what is being counted, e.g. 'free_chat' (lifetime) or 'chat:2026-11-14' (one day).
 
 create table if not exists public.ai_usage (

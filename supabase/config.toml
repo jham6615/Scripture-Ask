@@ -2,9 +2,9 @@
 #   supabase link --project-ref gkwcekrthkkumwfztlln
 project_id = "gkwcekrthkkumwfztlln"
 
-# The AI proxy skips the gateway's JWT check so legacy app builds (publishable key only) still reach
-# it. The function identifies the user from the JWT itself and meters every call in public.ai_usage
-# (see supabase/functions/ai/index.ts and migration 0004).
+# The AI proxy skips the gateway's JWT check and verifies the user's JWT itself, so it can answer a
+# missing session with a clear 401 { code: 'auth_required' }. It then meters every call in
+# public.ai_usage (see supabase/functions/ai/index.ts and migration 0004).
 [functions.ai]
 verify_jwt = false
 
