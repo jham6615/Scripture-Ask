@@ -2,36 +2,49 @@ import { useRouter } from 'expo-router';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { PurchasesPackage } from 'react-native-purchases';
+import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  EULA_URL,
-  PRIVACY_POLICY_URL,
-  SUBSCRIPTION_LENGTH,
-  SUBSCRIPTION_TITLE,
-} from '@/constants/legal';
+import { EULA_URL, PRIVACY_POLICY_URL, SUBSCRIPTION_LENGTHS, SUBSCRIPTION_TITLE } from '@/constants/legal';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useAuth } from '@/features/auth/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import { startWebCheckout } from '@/lib/billing';
-import { getCurrentOffering, purchasePackage, purchasesReady, restorePurchases } from '@/lib/revenuecat';
-import { FREE_DAILY_LIMIT } from '@/store/subscription-store';
+import {
+  getCurrentOffering,
+  getTrialEligibility,
+  purchasePackage,
+  purchasesReady,
+  restorePurchases,
+} from '@/lib/revenuecat';
 
-/** Display price for the monthly plan. Keep in sync with the Stripe Price and the App Store subscription. */
-const PRICE_LABEL = '$4.99';
+type PlanId = 'annual' | 'monthly';
+
+/** One plan as the paywall shows it, whether it came from the App Store (RevenueCat) or Stripe (web). */
+type PlanView = {
+  id: PlanId;
+  label: string;
+  /** The amount billed each period, e.g. "$39.99". Always the most prominent price (Apple 3.1.2). */
+  price: string;
+  period: 'year' | 'month';
+  /** Monthly equivalent of the annual price, shown as secondary text. */
+  perMonth?: string;
+  /** e.g. "7-day". Set only when this buyer can actually get a free trial. */
+  trial?: string;
+  savePercent?: number;
+  /** Native only: the RevenueCat package to buy. */
+  pkg?: PurchasesPackage;
+};
 
 /**
- * Required by App Store Review Guideline 3.1.2(c) for auto-renewable subscriptions: the paywall
- * must state the subscription's title, length, price, auto-renewal terms, and cancel path. Wording
- * follows Apple's recommended template — do not soften without revisiting that guideline.
+ * Web (Stripe) prices shown on the paywall. Keep in sync with the Stripe Prices behind
+ * STRIPE_PRICE_ID_ANNUAL / STRIPE_PRICE_ID and with STRIPE_ANNUAL_TRIAL_DAYS in create-checkout.
+ * Native prices are never hard-coded: they come from the App Store through RevenueCat.
  */
-const APPLE_DISCLOSURE = `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTH} auto-renewing subscription at ${PRICE_LABEL}/month. Payment is charged to your Apple ID at purchase confirmation. The subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store account settings.`;
-
-const WEB_DISCLOSURE = `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTH} auto-renewing subscription at ${PRICE_LABEL}/month, billed by Stripe. Cancel anytime from the Stripe billing portal linked in your receipt.`;
-
-const openLegal = (href: string) =>
-  void openBrowserAsync(href, { presentationStyle: WebBrowserPresentationStyle.AUTOMATIC });
+const WEB_PLANS: PlanView[] = [
+  { id: 'annual', label: 'Yearly', price: '$39.99', period: 'year', perMonth: '$3.33', trial: '7-day', savePercent: 67 },
+  { id: 'monthly', label: 'Monthly', price: '$9.99', period: 'month' },
+];
 
 const BENEFITS = [
   'Unlimited AI conversations',
@@ -40,6 +53,88 @@ const BENEFITS = [
   'Support the mission',
 ];
 
+const openLegal = (href: string) =>
+  void openBrowserAsync(href, { presentationStyle: WebBrowserPresentationStyle.AUTOMATIC });
+
+const TRIAL_UNITS: Record<string, 'day' | 'week' | 'month' | 'year'> = {
+  DAY: 'day',
+  WEEK: 'week',
+  MONTH: 'month',
+  YEAR: 'year',
+};
+
+/** "7-day", "1-month", … from the product's App Store intro offer, or undefined if it isn't a free trial. */
+function freeTrialLabel(pkg: PurchasesPackage): string | undefined {
+  const intro = pkg.product.introPrice;
+  if (!intro || intro.price !== 0) return undefined;
+  const unit = TRIAL_UNITS[intro.periodUnit];
+  if (!unit) return undefined;
+  const n = intro.periodNumberOfUnits * Math.max(intro.cycles, 1);
+  return unit === 'week' ? `${n * 7}-day` : `${n}-${unit}`;
+}
+
+/** Build the plan list from the current RevenueCat offering: annual first, then monthly. */
+async function nativePlans(offering: PurchasesOffering | null): Promise<PlanView[]> {
+  if (!offering) return [];
+  const annual = offering.annual;
+  const monthly = offering.monthly ?? (annual ? null : (offering.availablePackages[0] ?? null));
+  const packages = [annual, monthly].filter((p): p is PurchasesPackage => !!p);
+  const eligible = await getTrialEligibility(packages.map((p) => p.product.identifier));
+  const trialFor = (p: PurchasesPackage) => (eligible[p.product.identifier] ? freeTrialLabel(p) : undefined);
+
+  const plans: PlanView[] = [];
+  if (annual) {
+    const save =
+      monthly && monthly.product.price > 0
+        ? Math.round((1 - annual.product.price / (monthly.product.price * 12)) * 100)
+        : 0;
+    plans.push({
+      id: 'annual',
+      label: 'Yearly',
+      price: annual.product.priceString,
+      period: 'year',
+      perMonth: annual.product.pricePerMonthString ?? undefined,
+      trial: trialFor(annual),
+      savePercent: save > 0 ? save : undefined,
+      pkg: annual,
+    });
+  }
+  if (monthly) {
+    plans.push({
+      id: 'monthly',
+      label: 'Monthly',
+      price: monthly.product.priceString,
+      period: 'month',
+      trial: trialFor(monthly),
+      pkg: monthly,
+    });
+  }
+  return plans;
+}
+
+const RENEWAL_TERMS =
+  'The subscription renews automatically unless canceled at least 24 hours before the end of the current period. Manage or cancel anytime in your App Store account settings.';
+
+/**
+ * Required by App Store Review Guideline 3.1.2(c) for auto-renewable subscriptions: the paywall
+ * must state the subscription's title, length, price, trial terms, auto-renewal terms, and cancel
+ * path. Wording follows Apple's recommended template — do not soften without revisiting that guideline.
+ */
+function appleDisclosure(plan: PlanView): string {
+  const length = SUBSCRIPTION_LENGTHS[plan.id];
+  if (plan.trial) {
+    return `${SUBSCRIPTION_TITLE} is a ${length} auto-renewing subscription. Your ${plan.trial} free trial starts today. When it ends, ${plan.price} per ${plan.period} is charged to your Apple ID unless you cancel at least 24 hours before the trial ends. ${RENEWAL_TERMS}`;
+  }
+  return `${SUBSCRIPTION_TITLE} is a ${length} auto-renewing subscription at ${plan.price}/${plan.period}. Payment is charged to your Apple ID at purchase confirmation. ${RENEWAL_TERMS}`;
+}
+
+function webDisclosure(plan: PlanView): string {
+  const trial = plan.trial
+    ? ` First-time subscribers get a ${plan.trial} free trial and aren't charged until it ends.`
+    : '';
+  return `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTHS[plan.id]} auto-renewing subscription at ${plan.price}/${plan.period}, billed by Stripe.${trial} Cancel anytime from the Stripe billing portal linked in your receipt.`;
+}
+
 export default function PaywallScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -47,35 +142,45 @@ export default function PaywallScreen() {
 
   const { session } = useAuth();
   // Payment is only allowed when signed in, so every subscription is bound to a Supabase account from
-  // the moment of purchase — that account is the source of truth and unlocks premium on every platform.
+  // the moment of purchase — that account is the source of truth and unlocks premium on every platform
+  // (including the server-side AI check).
   const signedIn = !!session;
-  const subscribeLabel = signedIn ? 'Subscribe' : 'Sign in to subscribe';
 
   const isWeb = Platform.OS === 'web';
   const ready = purchasesReady();
-  const [loading, setLoading] = useState(true);
-  const [pkg, setPkg] = useState<PurchasesPackage | null>(null);
+  const [loading, setLoading] = useState(!isWeb && ready);
+  const [nativeList, setNativeList] = useState<PlanView[]>([]);
+  const [selected, setSelected] = useState<PlanId>('annual');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isWeb || !ready) return;
     let active = true;
-    if (!ready) {
-      setLoading(false);
-      return;
-    }
     getCurrentOffering()
-      .then((offering) => {
+      .then(nativePlans)
+      .then((list) => {
         if (!active) return;
-        setPkg(offering?.monthly ?? offering?.availablePackages[0] ?? null);
+        setNativeList(list);
+        // Annual is the default; fall back to whatever the offering has if annual isn't set up yet.
+        if (list.length > 0 && !list.some((p) => p.id === 'annual')) setSelected(list[0].id);
       })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, []);
+  }, [isWeb, ready]);
 
-  const priceLabel = pkg?.product.priceString ?? PRICE_LABEL;
+  const plans = isWeb ? WEB_PLANS : nativeList;
+  const plan = plans.find((p) => p.id === selected) ?? plans[0];
+
+  const ctaLabel = signedIn
+    ? plan?.trial
+      ? `Start ${plan.trial} free trial`
+      : 'Subscribe'
+    : plan?.trial
+      ? 'Sign in to start your free trial'
+      : 'Sign in to subscribe';
 
   // Web: hand off to Stripe Checkout (full-page redirect). On success Stripe returns the browser to
   // PUBLIC_SITE_URL/?checkout=success, where the app refreshes the entitlement and unlocks premium.
@@ -84,9 +189,10 @@ export default function PaywallScreen() {
       router.push('/auth'); // must be signed in to subscribe; returns here after sign-in
       return;
     }
+    if (!plan) return;
     setBusy(true);
     setMessage(null);
-    const result = await startWebCheckout();
+    const result = await startWebCheckout(plan.id);
     if (!result.ok) {
       setBusy(false);
       setMessage(result.message ?? 'Could not start checkout. Please try again.');
@@ -99,10 +205,10 @@ export default function PaywallScreen() {
       router.push('/auth'); // must be signed in to subscribe; returns here after sign-in
       return;
     }
-    if (!pkg) return;
+    if (!plan?.pkg) return;
     setBusy(true);
     setMessage(null);
-    const result = await purchasePackage(pkg);
+    const result = await purchasePackage(plan.pkg);
     setBusy(false);
     if (result.status === 'success') {
       router.back();
@@ -113,6 +219,11 @@ export default function PaywallScreen() {
   };
 
   const restore = async () => {
+    // A restored subscription has to attach to an account too, or the server-side AI check can't see it.
+    if (!signedIn) {
+      router.push('/auth');
+      return;
+    }
     setBusy(true);
     setMessage(null);
     const result = await restorePurchases();
@@ -122,15 +233,16 @@ export default function PaywallScreen() {
   };
 
   // When not signed in, the button is still tappable — it routes to sign-in (no package needed yet).
-  const canBuy = ready && !busy && (!signedIn || !!pkg);
+  const canBuy = !busy && (isWeb || !signedIn || !!plan?.pkg);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + Spacing.five }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.kicker, { color: theme.textSecondary }]}>SCRIPTURE ASK PREMIUM</Text>
+        <Text style={[styles.kicker, { color: theme.textSecondary }]}>BEACON BIBLE PREMIUM</Text>
         <Text style={[styles.title, { color: theme.text, fontFamily: Fonts.serif }]}>Go deeper, with no limits.</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Free includes {FREE_DAILY_LIMIT} AI questions a day. Premium removes the cap and opens everything up.
+          Scripture is always free. Premium unlocks the AI study partner, so you can ask about any passage as
+          often as you like.
         </Text>
 
         <View style={styles.benefits}>
@@ -144,65 +256,59 @@ export default function PaywallScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.three }]}>
-        {isWeb ? (
-          <>
-            <SubscriptionPriceBlock priceLabel={PRICE_LABEL} theme={theme} />
-
-            <Pressable
-              onPress={subscribeWeb}
-              disabled={busy}
-              style={[styles.primary, { backgroundColor: theme.text, opacity: busy ? 0.4 : 1 }]}
-            >
-              {busy ? (
-                <ActivityIndicator color={theme.background} />
-              ) : (
-                <Text style={[styles.primaryText, { color: theme.background }]}>{subscribeLabel}</Text>
-              )}
-            </Pressable>
-
-            {message ? <Text style={[styles.note, { color: theme.textSecondary }]}>{message}</Text> : null}
-
-            <Text style={[styles.note, { color: theme.textSecondary }]}>
-              {signedIn
-                ? WEB_DISCLOSURE
-                : `Sign in so your Premium works across iPhone, web, and desktop. ${WEB_DISCLOSURE}`}
-            </Text>
-          </>
-        ) : !ready ? (
+        {!isWeb && !ready ? (
           <Text style={[styles.note, { color: theme.textSecondary }]}>
             Premium subscriptions are available in the Beacon Bible app on your phone.
           </Text>
         ) : loading ? (
           <ActivityIndicator color={theme.text} style={{ paddingVertical: Spacing.three }} />
+        ) : !plan ? (
+          <Text style={[styles.note, { color: theme.textSecondary }]}>
+            Subscriptions aren’t available just yet. Please check back soon.
+          </Text>
         ) : (
           <>
-            <SubscriptionPriceBlock priceLabel={priceLabel} theme={theme} />
+            <View style={styles.plans} accessibilityRole="radiogroup">
+              {plans.map((p) => (
+                <PlanOption
+                  key={p.id}
+                  plan={p}
+                  selected={p.id === plan.id}
+                  onPress={() => setSelected(p.id)}
+                  theme={theme}
+                />
+              ))}
+            </View>
 
             <Pressable
-              onPress={subscribe}
+              onPress={isWeb ? subscribeWeb : subscribe}
               disabled={!canBuy}
               style={[styles.primary, { backgroundColor: theme.text, opacity: canBuy ? 1 : 0.4 }]}
             >
               {busy ? (
                 <ActivityIndicator color={theme.background} />
               ) : (
-                <Text style={[styles.primaryText, { color: theme.background }]}>{subscribeLabel}</Text>
+                <Text style={[styles.primaryText, { color: theme.background }]}>{ctaLabel}</Text>
               )}
             </Pressable>
 
-            {signedIn && !pkg && (
-              <Text style={[styles.note, { color: theme.textSecondary }]}>
-                Subscriptions aren’t available just yet — please check back soon.
-              </Text>
-            )}
-
             {message ? <Text style={[styles.note, { color: theme.textSecondary }]}>{message}</Text> : null}
 
-            <Text style={[styles.disclosure, { color: theme.textSecondary }]}>{APPLE_DISCLOSURE}</Text>
+            {isWeb && !signedIn ? (
+              <Text style={[styles.note, { color: theme.textSecondary }]}>
+                Sign in so your Premium works across iPhone, web, and desktop.
+              </Text>
+            ) : null}
 
-            <Pressable onPress={restore} disabled={busy} style={styles.linkBtn}>
-              <Text style={[styles.link, { color: theme.textSecondary }]}>Restore purchases</Text>
-            </Pressable>
+            <Text style={[styles.disclosure, { color: theme.textSecondary }]}>
+              {isWeb ? webDisclosure(plan) : appleDisclosure(plan)}
+            </Text>
+
+            {!isWeb ? (
+              <Pressable onPress={restore} disabled={busy} style={styles.linkBtn}>
+                <Text style={[styles.link, { color: theme.textSecondary }]}>Restore purchases</Text>
+              </Pressable>
+            ) : null}
           </>
         )}
 
@@ -218,18 +324,56 @@ export default function PaywallScreen() {
 
 type ThemeShape = ReturnType<typeof useTheme>;
 
-/** Subscription title + length + price stacked together — Apple wants these read as one unit. */
-function SubscriptionPriceBlock({ priceLabel, theme }: { priceLabel: string; theme: ThemeShape }) {
+/** A selectable plan row. The billed price is the most prominent number; the monthly equivalent is secondary. */
+function PlanOption({
+  plan,
+  selected,
+  onPress,
+  theme,
+}: {
+  plan: PlanView;
+  selected: boolean;
+  onPress: () => void;
+  theme: ThemeShape;
+}) {
+  const detail = [
+    plan.trial ? `${plan.trial} free trial` : null,
+    plan.perMonth ? `${plan.perMonth}/mo` : null,
+    plan.period === 'year' ? 'billed yearly' : 'billed monthly',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <View>
-      <Text style={[styles.subTitle, { color: theme.textSecondary }]}>
-        {SUBSCRIPTION_TITLE} · {SUBSCRIPTION_LENGTH}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${plan.label}, ${plan.price} per ${plan.period}${plan.trial ? `, ${plan.trial} free trial` : ''}`}
+      style={[
+        styles.plan,
+        {
+          borderColor: selected ? theme.text : theme.backgroundSelected,
+          backgroundColor: selected ? theme.backgroundElement : 'transparent',
+        },
+      ]}
+    >
+      <View style={styles.planText}>
+        <View style={styles.planTitleRow}>
+          <Text style={[styles.planLabel, { color: theme.text }]}>{plan.label}</Text>
+          {plan.savePercent ? (
+            <View style={[styles.badge, { backgroundColor: theme.text }]}>
+              <Text style={[styles.badgeText, { color: theme.background }]}>SAVE {plan.savePercent}%</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={[styles.planDetail, { color: theme.textSecondary }]}>{detail}</Text>
+      </View>
+      <Text style={[styles.planPrice, { color: theme.text }]}>
+        {plan.price}
+        <Text style={[styles.per, { color: theme.textSecondary }]}> / {plan.period}</Text>
       </Text>
-      <Text style={[styles.price, { color: theme.text }]}>
-        {priceLabel}
-        <Text style={[styles.per, { color: theme.textSecondary }]}> / month</Text>
-      </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -269,9 +413,24 @@ const styles = StyleSheet.create({
   check: { fontSize: 18, fontWeight: '800' },
   benefitText: { fontSize: 17 },
   footer: { gap: Spacing.two },
-  subTitle: { fontSize: 12, fontWeight: '700', textAlign: 'center', letterSpacing: 0.4 },
-  price: { fontSize: 22, fontWeight: '700', textAlign: 'center', marginTop: 2 },
-  per: { fontSize: 15, fontWeight: '500' },
+  plans: { gap: Spacing.two },
+  plan: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 2,
+    borderRadius: 14,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+  },
+  planText: { flex: 1, gap: 2 },
+  planTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  planLabel: { fontSize: 16, fontWeight: '700' },
+  planDetail: { fontSize: 13 },
+  planPrice: { fontSize: 17, fontWeight: '700' },
+  badge: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  per: { fontSize: 13, fontWeight: '500' },
   primary: {
     borderRadius: 14,
     paddingVertical: Spacing.three,

@@ -1,9 +1,10 @@
 // Single network seam for AI. The prompts live here (client) so their wording can be tuned by just
-// reloading the app — no redeploy. The OpenAI key stays server-side in the `ai` Edge Function, which is
-// now a dumb pass-through: it takes ready-made messages and returns the model's reply.
+// reloading the app — no redeploy. The OpenAI key stays server-side in the `ai` Edge Function, which
+// takes ready-made messages and returns the model's reply.
 //
-// NOTE before public launch: the proxy accepts any prompt with the app's publishable key, so add rate
-// limiting / auth (and consider moving prompts back server-side) before shipping widely.
+// Every call carries a Supabase user session (a real account, or an anonymous user created on first
+// use) and a `kind`, and the Edge Function meters it server-side: the free question, the premium check
+// and the daily abuse caps all live there, so they hold even if this client is modified.
 
 import { supabase } from '@/lib/supabase';
 
@@ -176,10 +177,71 @@ function parseModelJson(raw: string): Record<string, unknown> | null {
   }
 }
 
+/** What the call is for. The server meters each kind separately (chat counts against the free question). */
+type AiKind = 'chat' | 'suggestions';
+
+/** Why the server refused an AI call, so the UI can route to sign-in or the paywall instead of a generic error. */
+export type AiAccessCode = 'auth_required' | 'paywall' | 'rate_limited';
+
+export class AiAccessError extends Error {
+  readonly code: AiAccessCode;
+  constructor(code: AiAccessCode, message: string) {
+    super(message);
+    this.name = 'AiAccessError';
+    this.code = code;
+  }
+}
+
+const ACCESS_CODES: readonly string[] = ['auth_required', 'paywall', 'rate_limited'];
+
+/** Pull the server's `{ code, error }` out of a non-2xx functions.invoke error, if it's an access refusal. */
+async function accessErrorFrom(error: unknown): Promise<AiAccessError | null> {
+  const ctx = (error as { context?: { clone?: () => { json: () => Promise<unknown> } } } | null)?.context;
+  if (!ctx || typeof ctx.clone !== 'function') return null;
+  try {
+    const body = (await ctx.clone().json()) as { code?: unknown; error?: unknown };
+    if (typeof body?.code === 'string' && ACCESS_CODES.includes(body.code)) {
+      return new AiAccessError(body.code as AiAccessCode, typeof body.error === 'string' ? body.error : body.code);
+    }
+  } catch {
+    // Not JSON — fall through to the generic error.
+  }
+  return null;
+}
+
+let sessionInFlight: Promise<void> | null = null;
+
+/**
+ * Make sure there's a Supabase session before calling the AI. Signed-out readers get an anonymous user
+ * so the server can count their free question per person. This needs "Allow anonymous sign-ins" turned
+ * on in Supabase Auth; if it isn't, the call goes out without a user and the server answers
+ * `auth_required`. Concurrent callers share one sign-in so a burst of requests can't create two users.
+ */
+function ensureAiSession(): Promise<void> {
+  if (!sessionInFlight) {
+    sessionInFlight = (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) return;
+      await supabase.auth.signInAnonymously();
+    })()
+      .catch(() => {})
+      .finally(() => {
+        sessionInFlight = null;
+      });
+  }
+  return sessionInFlight;
+}
+
 /** Sends ready-made messages to the proxy and returns the model's parsed JSON object. */
-async function callAI(messages: ChatMsg[], temperature: number, maxTokens: number): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.functions.invoke('ai', { body: { messages, temperature, maxTokens } });
-  if (error) throw error;
+async function callAI(
+  messages: ChatMsg[],
+  temperature: number,
+  maxTokens: number,
+  kind: AiKind,
+): Promise<Record<string, unknown>> {
+  await ensureAiSession();
+  const { data, error } = await supabase.functions.invoke('ai', { body: { messages, temperature, maxTokens, kind } });
+  if (error) throw (await accessErrorFrom(error)) ?? error;
   if (data && typeof data === 'object' && 'error' in data) {
     throw new Error(String((data as { error: unknown }).error));
   }
@@ -205,7 +267,7 @@ export async function generate(messages: ApiMessage[], context?: ChatContext): P
   if (ctx) sys.push({ role: 'system', content: ctx });
   // Non-Latin scripts (CJK, Arabic) cost 2-3× the tokens per sentence — 1800 proved too tight for
   // Korean answers (they truncated mid-paragraph), so give the model real headroom to finish.
-  const out = await callAI([...sys, ...messages], 0.7, 3500);
+  const out = await callAI([...sys, ...messages], 0.7, 3500, 'chat');
   return {
     content: typeof out.content === 'string' ? out.content : '',
     sources: asStringArray(out.sources),
@@ -249,6 +311,7 @@ The user is reading ${reference}, with no specific verses highlighted. Generate 
     ],
     1.0,
     400,
+    'suggestions',
   );
   return asStringArray(out.questions).slice(0, count);
 }

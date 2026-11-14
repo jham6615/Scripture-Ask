@@ -27,7 +27,9 @@ export type Note = {
 
 async function uid(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  // Anonymous users exist only for AI metering; nothing is saved for them (the app shows them as signed out).
+  if (!data.user || data.user.is_anonymous) return null;
+  return data.user.id;
 }
 
 type NoteRow = { id: string; book_id: string; chapter: number; verses: number[]; content: string; updated_at: string };

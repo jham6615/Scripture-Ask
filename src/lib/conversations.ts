@@ -16,7 +16,9 @@ export type Conversation = ConversationSummary & { messages: ChatMessage[] };
 
 async function uid(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  // Anonymous users exist only for AI metering; nothing is saved for them (the app shows them as signed out).
+  if (!data.user || data.user.is_anonymous) return null;
+  return data.user.id;
 }
 
 /** Strip transient fields (e.g. `pending`) before persisting. */

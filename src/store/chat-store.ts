@@ -1,10 +1,12 @@
+import { router } from 'expo-router';
 import { create } from 'zustand';
 
-import { generate, responseToText, type StructuredResponse } from '@/lib/api';
+import { AiAccessError, generate, responseToText, type StructuredResponse } from '@/lib/api';
 import { createConversation, listConversations, loadConversation, updateConversation } from '@/lib/conversations';
 import { formatReference } from '@/features/selection/actions';
 import { useReaderStore } from '@/store/reader-store';
 import { useSelectionStore } from '@/store/selection-store';
+import { useSubscriptionStore } from '@/store/subscription-store';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -59,6 +61,36 @@ type ChatState = {
   setHistoryOpen: (open: boolean) => void;
 };
 
+/**
+ * Turn a failed AI call into the assistant bubble. When the server refused the call (free question
+ * used, sign-in needed, daily cap), also route to the screen that fixes it and keep the local
+ * free-question count in step with the server's.
+ */
+function failureReply(err: unknown): StructuredResponse {
+  const sub = useSubscriptionStore.getState();
+  if (err instanceof AiAccessError) {
+    if (err.code === 'paywall') {
+      if (sub.isPremium) {
+        // Paid, but the server hasn't recorded the purchase yet (store webhooks can lag a few seconds).
+        void sub.refreshServerEntitlement();
+        return { summary: 'Your Premium is still activating. Please try again in a moment.', insights: [] };
+      }
+      sub.markFreeUsedUp();
+      router.push('/paywall');
+      return { summary: 'You’ve used your free question. Start Premium to keep asking.', insights: [] };
+    }
+    if (err.code === 'auth_required') {
+      sub.refundAsk();
+      router.push('/auth');
+      return { summary: 'Please sign in to ask your question.', insights: [] };
+    }
+    return { summary: 'You’ve reached today’s limit. Please try again tomorrow.', insights: [] };
+  }
+  // The server gives the question back when the model call fails, so do the same locally.
+  sub.refundAsk();
+  return { summary: 'Sorry — something went wrong. Please try again.', insights: [] };
+}
+
 export const useChatStore = create<ChatState>((set, get) => {
   // Save the current conversation to Supabase. No-op when signed out (createConversation returns null).
   const persist = async () => {
@@ -108,16 +140,13 @@ export const useChatStore = create<ChatState>((set, get) => {
           }));
           void persist();
         })
-        .catch(() =>
+        .catch((err: unknown) => {
+          const response = failureReply(err);
           set((s) => ({
-            messages: s.messages.map((m) =>
-              m.id === pendingId
-                ? { id: m.id, role: 'assistant', response: { summary: 'Sorry — something went wrong. Please try again.', insights: [] } }
-                : m,
-            ),
+            messages: s.messages.map((m) => (m.id === pendingId ? { id: m.id, role: 'assistant', response } : m)),
             isGenerating: false,
-          })),
-        );
+          }));
+        });
     },
 
     reset: () => set({ messages: [], isGenerating: false, conversationId: null }),

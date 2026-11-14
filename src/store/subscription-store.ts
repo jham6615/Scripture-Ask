@@ -3,19 +3,26 @@ import { create } from 'zustand';
 
 import { fetchServerEntitlement } from '@/lib/entitlements';
 
-/** Free users get this many AI questions per day; premium is unlimited. */
-export const FREE_DAILY_LIMIT = 5;
+/**
+ * Free AI questions before the paywall: one, so a new reader can try it. After that they see the
+ * paywall with the free trial. Reading the Bible is always free; only the AI is gated.
+ *
+ * This local count only decides when to show the paywall. The real gate is server-side
+ * (AI_FREE_CHAT_LIMIT in supabase/functions/ai), so reinstalling or clearing storage doesn't add
+ * questions. Keep the two numbers in sync.
+ */
+export const FREE_QUESTION_LIMIT = 1;
 
 const STORAGE_KEY = 'bf:subscription';
-const todayKey = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
 /**
  * Dev override. In Metro-served dev builds (`__DEV__` true), unconditionally treat the user
- * as premium so the paywall + daily counter don't block iteration. This matters in particular
+ * as premium so the paywall + free-question counter don't block iteration. This matters in particular
  * because the dev variant has its own bundle ID (com.shuttlementor.biblefriend.dev) for which
  * Apple has no IAP products configured — so RevenueCat returns no offerings and the paywall
  * would otherwise be a dead end. Release builds (TestFlight, App Store) have `__DEV__` false
- * and behave normally.
+ * and behave normally. Note the server still meters dev builds: give your test account an active
+ * row in `entitlements` (or raise AI_FREE_CHAT_LIMIT) if you need unlimited questions while testing.
  */
 const DEV_FREE_PREMIUM = __DEV__;
 
@@ -38,13 +45,17 @@ type SubscriptionState = {
   storePremium: boolean;
   /** Supabase `entitlements` row (web Stripe + cross-platform). */
   serverPremium: boolean;
-  date: string; // the day `used` counts toward
-  used: number; // AI questions asked today
+  /** Free AI questions used on this device. Lifetime, not per day. */
+  freeUsed: number;
   hydrate: () => void;
-  /** Free questions left today (Infinity when premium). */
+  /** Free questions left (Infinity when premium). */
   remaining: () => number;
   canAsk: () => boolean;
   recordAsk: () => void;
+  /** Give back a question whose answer failed. The server refunds its own count in that case too. */
+  refundAsk: () => void;
+  /** The server says the free question is already used (e.g. after a reinstall); match it locally. */
+  markFreeUsedUp: () => void;
   /** Set by RevenueCat (native store purchases). */
   setStorePremium: (value: boolean) => void;
   /** Set by the Supabase entitlements refresh (web Stripe / cross-platform). */
@@ -53,21 +64,24 @@ type SubscriptionState = {
   refreshServerEntitlement: () => Promise<void>;
 };
 
-type Persisted = { storePremium: boolean; serverPremium: boolean; date: string; used: number };
+type Persisted = { storePremium: boolean; serverPremium: boolean; freeUsed: number };
 
 const save = (s: Persisted) => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(s)).catch(() => {});
+
+const clampFree = (n: number) => Math.min(Math.max(n, 0), FREE_QUESTION_LIMIT);
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   isPremium: DEV_FREE_PREMIUM,
   storePremium: false,
   serverPremium: false,
-  date: todayKey(),
-  used: 0,
+  freeUsed: 0,
 
   hydrate: () => {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
         if (!raw) return;
+        // Older builds stored a daily count ({ date, used }); it doesn't carry over, so updating
+        // readers start with their one free question and the server decides from there.
         const s = JSON.parse(raw) as Partial<Persisted>;
         const storePremium = !!s.storePremium;
         const serverPremium = !!s.serverPremium;
@@ -75,8 +89,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
           storePremium,
           serverPremium,
           isPremium: derivePremium(storePremium, serverPremium),
-          date: s.date ?? todayKey(),
-          used: s.used ?? 0,
+          freeUsed: clampFree(typeof s.freeUsed === 'number' ? s.freeUsed : 0),
         });
       })
       .catch(() => {});
@@ -85,8 +98,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   remaining: () => {
     const s = get();
     if (s.isPremium) return Number.POSITIVE_INFINITY;
-    if (s.date !== todayKey()) return FREE_DAILY_LIMIT; // new day → reset on next ask
-    return Math.max(0, FREE_DAILY_LIMIT - s.used);
+    return Math.max(0, FREE_QUESTION_LIMIT - s.freeUsed);
   },
 
   canAsk: () => get().remaining() > 0,
@@ -94,23 +106,36 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   recordAsk: () =>
     set((s) => {
       if (s.isPremium) return s;
-      const d = todayKey();
-      const used = s.date === d ? s.used + 1 : 1;
-      save({ storePremium: s.storePremium, serverPremium: s.serverPremium, date: d, used });
-      return { date: d, used };
+      const freeUsed = clampFree(s.freeUsed + 1);
+      save({ storePremium: s.storePremium, serverPremium: s.serverPremium, freeUsed });
+      return { freeUsed };
+    }),
+
+  refundAsk: () =>
+    set((s) => {
+      if (s.isPremium) return s;
+      const freeUsed = clampFree(s.freeUsed - 1);
+      save({ storePremium: s.storePremium, serverPremium: s.serverPremium, freeUsed });
+      return { freeUsed };
+    }),
+
+  markFreeUsedUp: () =>
+    set((s) => {
+      save({ storePremium: s.storePremium, serverPremium: s.serverPremium, freeUsed: FREE_QUESTION_LIMIT });
+      return { freeUsed: FREE_QUESTION_LIMIT };
     }),
 
   setStorePremium: (value) =>
     set((s) => {
       const storePremium = value;
-      save({ storePremium, serverPremium: s.serverPremium, date: s.date, used: s.used });
+      save({ storePremium, serverPremium: s.serverPremium, freeUsed: s.freeUsed });
       return { storePremium, isPremium: derivePremium(storePremium, s.serverPremium) };
     }),
 
   setServerPremium: (value) =>
     set((s) => {
       const serverPremium = value;
-      save({ storePremium: s.storePremium, serverPremium, date: s.date, used: s.used });
+      save({ storePremium: s.storePremium, serverPremium, freeUsed: s.freeUsed });
       return { serverPremium, isPremium: derivePremium(s.storePremium, serverPremium) };
     }),
 

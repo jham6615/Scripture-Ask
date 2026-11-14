@@ -2,8 +2,9 @@
 #   supabase link --project-ref gkwcekrthkkumwfztlln
 project_id = "gkwcekrthkkumwfztlln"
 
-# The AI proxy is called with the app's publishable key, not a user JWT, so skip JWT verification.
-# (Add real abuse protection — rate limiting / auth gating — before a public launch.)
+# The AI proxy skips the gateway's JWT check so legacy app builds (publishable key only) still reach
+# it. The function identifies the user from the JWT itself and meters every call in public.ai_usage
+# (see supabase/functions/ai/index.ts and migration 0004).
 [functions.ai]
 verify_jwt = false
 

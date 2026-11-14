@@ -10,7 +10,9 @@ import { supabase } from './supabase';
  *
  * Native (iOS/Android) purchasing goes through RevenueCat instead — see src/lib/revenuecat.ts.
  */
-export async function startWebCheckout(): Promise<{ ok: boolean; message?: string }> {
+export type WebPlan = 'annual' | 'monthly';
+
+export async function startWebCheckout(plan: WebPlan): Promise<{ ok: boolean; message?: string }> {
   if (Platform.OS !== 'web') {
     return { ok: false, message: 'Web checkout is only available in the browser app.' };
   }
@@ -18,9 +20,10 @@ export async function startWebCheckout(): Promise<{ ok: boolean; message?: strin
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { ok: false, message: 'Please sign in first to subscribe.' };
+  // Anonymous users (AI metering only) can't subscribe; the subscription must belong to a real account.
+  if (!user || user.is_anonymous) return { ok: false, message: 'Please sign in first to subscribe.' };
 
-  const { data, error } = await supabase.functions.invoke('create-checkout', { body: {} });
+  const { data, error } = await supabase.functions.invoke('create-checkout', { body: { plan } });
   if (error) return { ok: false, message: error.message };
 
   const url = (data as { url?: string } | null)?.url;

@@ -7,7 +7,7 @@ import { AssistantMessage } from '@/features/chat/assistant-message';
 import { SuggestionCards } from '@/features/suggestions/suggestion-cards';
 import { useTheme } from '@/hooks/use-theme';
 import { type ChatMessage, useChatStore } from '@/store/chat-store';
-import { FREE_DAILY_LIMIT, useSubscriptionStore } from '@/store/subscription-store';
+import { FREE_QUESTION_LIMIT, useSubscriptionStore } from '@/store/subscription-store';
 
 type Props =
   | {
@@ -36,8 +36,7 @@ export function ChatPanel(props: Props) {
   const messages = useChatStore((s) => s.messages);
   const isGenerating = useChatStore((s) => s.isGenerating);
   const isPremium = useSubscriptionStore((s) => s.isPremium);
-  const used = useSubscriptionStore((s) => s.used);
-  const usageDate = useSubscriptionStore((s) => s.date);
+  const freeUsed = useSubscriptionStore((s) => s.freeUsed);
   const [draft, setDraft] = useState('');
   const listRef = useRef<ScrollView>(null);
   // Desktop column: suggestions collapse once the conversation starts to give the messages more room.
@@ -54,8 +53,7 @@ export function ChatPanel(props: Props) {
   // that the safe-area + a little breathing room is all we need.
   const bottomPad = insets.bottom + Spacing.two;
   const canSend = draft.trim().length > 0 && !isGenerating;
-  const isToday = usageDate === new Date().toISOString().slice(0, 10);
-  const freeLeft = Math.max(0, FREE_DAILY_LIMIT - (isToday ? used : 0));
+  const freeLeft = Math.max(0, FREE_QUESTION_LIMIT - freeUsed);
 
   const onSendPress = () => {
     if (!canSend) return;
@@ -157,8 +155,10 @@ export function ChatPanel(props: Props) {
       {!isPremium && (
         <Text style={[styles.freeHint, { color: theme.textSecondary }]}>
           {freeLeft > 0
-            ? `${freeLeft} free question${freeLeft === 1 ? '' : 's'} left today`
-            : 'Out of free questions today — tap send to go unlimited'}
+            ? freeLeft === 1
+              ? 'Your first question is free'
+              : `${freeLeft} free questions to try it`
+            : 'Free question used. Tap send to unlock unlimited questions.'}
         </Text>
       )}
 

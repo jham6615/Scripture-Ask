@@ -15,16 +15,24 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue>({ session: null, loading: true });
 
+/**
+ * The session, if it belongs to a real account. Anonymous sessions exist only so the AI server can
+ * meter a signed-out reader's free question (see ensureAiSession in lib/api.ts), so the app treats
+ * them as signed out everywhere.
+ */
+const realAccount = (s: Session | null): Session | null => (s && !s.user.is_anonymous ? s : null);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+      const account = realAccount(data.session);
+      setSession(account);
       setLoading(false);
-      identifyUser(data.session?.user.id ?? null);
-      if (data.session) {
+      identifyUser(account?.user.id ?? null);
+      if (account) {
         useChatStore.getState().resumeLatest();
         // Pull cross-platform premium (web Stripe / Supabase entitlements) for this account.
         useSubscriptionStore.getState().refreshServerEntitlement();
@@ -34,6 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      // An anonymous sign-in happens mid-send (a signed-out reader's first question). Keep the UI signed
+      // out and leave the chat alone, since the question that triggered it is still in flight.
+      if (nextSession?.user.is_anonymous) {
+        setSession(null);
+        return;
+      }
       setSession(nextSession);
       // Tie RevenueCat purchases to the account (or revert to anonymous on sign-out).
       identifyUser(nextSession?.user.id ?? null);
