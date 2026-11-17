@@ -5,13 +5,12 @@
 // Checkout Session stamped with the user's id, and returns the hosted checkout URL for redirect.
 //
 // Body: { plan?: 'annual' | 'monthly' } (defaults to monthly, which is what older web builds send).
-// The annual plan includes a free trial for customers who have never subscribed before.
+// There is no free trial: Stripe charges the first period at checkout.
 //
 // Secrets to set (Supabase dashboard → Edge Functions → Secrets, or `supabase secrets set`):
 //   STRIPE_SECRET_KEY         sk_test_... / sk_live_...
 //   STRIPE_PRICE_ID           price_...        (the monthly Premium price)
 //   STRIPE_PRICE_ID_ANNUAL    price_...        (the annual Premium price)
-//   STRIPE_ANNUAL_TRIAL_DAYS  optional, default 7 (0 turns the trial off)
 //   PUBLIC_SITE_URL           https://<vercel-domain>   (used for success/cancel redirects)
 // Auto-injected by Supabase (do NOT set): SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 
@@ -54,8 +53,6 @@ Deno.serve(async (req) => {
         { status: 500, headers: cors },
       );
     }
-    const trialDaysRaw = Number.parseInt(Deno.env.get('STRIPE_ANNUAL_TRIAL_DAYS') ?? '7', 10);
-    const annualTrialDays = Number.isFinite(trialDaysRaw) && trialDaysRaw > 0 ? trialDaysRaw : 0;
 
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!);
     // Use the calling site's Origin for the post-checkout redirect so it always returns to the right
@@ -73,29 +70,20 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     let customerId = ent?.stripe_customer_id ?? undefined;
-    let firstTimeCustomer = true;
-    if (customerId) {
-      // One trial per customer: anyone who has ever had a subscription pays from day one.
-      const prior = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 1 });
-      firstTimeCustomer = prior.data.length === 0;
-    } else {
+    if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
         metadata: { user_id: user.id },
       });
       customerId = customer.id;
     }
-    const trialDays = annual && firstTimeCustomer ? annualTrialDays : 0;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: user.id,
-      subscription_data: {
-        metadata: { user_id: user.id },
-        ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
-      },
+      subscription_data: { metadata: { user_id: user.id } },
       allow_promotion_codes: true,
       success_url: `${siteUrl}/?checkout=success`,
       cancel_url: `${siteUrl}/?checkout=cancel`,

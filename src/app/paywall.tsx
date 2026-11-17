@@ -10,13 +10,7 @@ import { Fonts, Spacing } from '@/constants/theme';
 import { useAuth } from '@/features/auth/auth-context';
 import { useTheme } from '@/hooks/use-theme';
 import { startWebCheckout } from '@/lib/billing';
-import {
-  getCurrentOffering,
-  getTrialEligibility,
-  purchasePackage,
-  purchasesReady,
-  restorePurchases,
-} from '@/lib/revenuecat';
+import { getCurrentOffering, purchasePackage, purchasesReady, restorePurchases } from '@/lib/revenuecat';
 
 type PlanId = 'annual' | 'monthly';
 
@@ -29,8 +23,6 @@ type PlanView = {
   period: 'year' | 'month';
   /** Monthly equivalent of the annual price, shown as secondary text. */
   perMonth?: string;
-  /** e.g. "7-day". Set only when this buyer can actually get a free trial. */
-  trial?: string;
   savePercent?: number;
   /** Native only: the RevenueCat package to buy. */
   pkg?: PurchasesPackage;
@@ -38,11 +30,12 @@ type PlanView = {
 
 /**
  * Web (Stripe) prices shown on the paywall. Keep in sync with the Stripe Prices behind
- * STRIPE_PRICE_ID_ANNUAL / STRIPE_PRICE_ID and with STRIPE_ANNUAL_TRIAL_DAYS in create-checkout.
+ * STRIPE_PRICE_ID_ANNUAL / STRIPE_PRICE_ID in create-checkout. There is no free trial: the first
+ * payment is taken at checkout, on web and in the App Store alike.
  * Native prices are never hard-coded: they come from the App Store through RevenueCat.
  */
 const WEB_PLANS: PlanView[] = [
-  { id: 'annual', label: 'Yearly', price: '$39.99', period: 'year', perMonth: '$3.33', trial: '7-day', savePercent: 67 },
+  { id: 'annual', label: 'Yearly', price: '$39.99', period: 'year', perMonth: '$3.33', savePercent: 67 },
   { id: 'monthly', label: 'Monthly', price: '$9.99', period: 'month' },
 ];
 
@@ -56,31 +49,15 @@ const BENEFITS = [
 const openLegal = (href: string) =>
   void openBrowserAsync(href, { presentationStyle: WebBrowserPresentationStyle.AUTOMATIC });
 
-const TRIAL_UNITS: Record<string, 'day' | 'week' | 'month' | 'year'> = {
-  DAY: 'day',
-  WEEK: 'week',
-  MONTH: 'month',
-  YEAR: 'year',
-};
-
-/** "7-day", "1-month", … from the product's App Store intro offer, or undefined if it isn't a free trial. */
-function freeTrialLabel(pkg: PurchasesPackage): string | undefined {
-  const intro = pkg.product.introPrice;
-  if (!intro || intro.price !== 0) return undefined;
-  const unit = TRIAL_UNITS[intro.periodUnit];
-  if (!unit) return undefined;
-  const n = intro.periodNumberOfUnits * Math.max(intro.cycles, 1);
-  return unit === 'week' ? `${n * 7}-day` : `${n}-${unit}`;
-}
-
-/** Build the plan list from the current RevenueCat offering: annual first, then monthly. */
-async function nativePlans(offering: PurchasesOffering | null): Promise<PlanView[]> {
+/**
+ * Build the plan list from the current RevenueCat offering: annual first, then monthly.
+ * The App Store products must have no introductory offer: the disclosure below says payment is taken at
+ * purchase confirmation.
+ */
+function nativePlans(offering: PurchasesOffering | null): PlanView[] {
   if (!offering) return [];
   const annual = offering.annual;
   const monthly = offering.monthly ?? (annual ? null : (offering.availablePackages[0] ?? null));
-  const packages = [annual, monthly].filter((p): p is PurchasesPackage => !!p);
-  const eligible = await getTrialEligibility(packages.map((p) => p.product.identifier));
-  const trialFor = (p: PurchasesPackage) => (eligible[p.product.identifier] ? freeTrialLabel(p) : undefined);
 
   const plans: PlanView[] = [];
   if (annual) {
@@ -94,7 +71,6 @@ async function nativePlans(offering: PurchasesOffering | null): Promise<PlanView
       price: annual.product.priceString,
       period: 'year',
       perMonth: annual.product.pricePerMonthString ?? undefined,
-      trial: trialFor(annual),
       savePercent: save > 0 ? save : undefined,
       pkg: annual,
     });
@@ -105,7 +81,6 @@ async function nativePlans(offering: PurchasesOffering | null): Promise<PlanView
       label: 'Monthly',
       price: monthly.product.priceString,
       period: 'month',
-      trial: trialFor(monthly),
       pkg: monthly,
     });
   }
@@ -117,22 +92,15 @@ const RENEWAL_TERMS =
 
 /**
  * Required by App Store Review Guideline 3.1.2(c) for auto-renewable subscriptions: the paywall
- * must state the subscription's title, length, price, trial terms, auto-renewal terms, and cancel
- * path. Wording follows Apple's recommended template — do not soften without revisiting that guideline.
+ * must state the subscription's title, length, price, auto-renewal terms, and cancel path. Wording
+ * follows Apple's recommended template — do not soften without revisiting that guideline.
  */
 function appleDisclosure(plan: PlanView): string {
-  const length = SUBSCRIPTION_LENGTHS[plan.id];
-  if (plan.trial) {
-    return `${SUBSCRIPTION_TITLE} is a ${length} auto-renewing subscription. Your ${plan.trial} free trial starts today. When it ends, ${plan.price} per ${plan.period} is charged to your Apple ID unless you cancel at least 24 hours before the trial ends. ${RENEWAL_TERMS}`;
-  }
-  return `${SUBSCRIPTION_TITLE} is a ${length} auto-renewing subscription at ${plan.price}/${plan.period}. Payment is charged to your Apple ID at purchase confirmation. ${RENEWAL_TERMS}`;
+  return `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTHS[plan.id]} auto-renewing subscription at ${plan.price}/${plan.period}. Payment is charged to your Apple ID at purchase confirmation. ${RENEWAL_TERMS}`;
 }
 
 function webDisclosure(plan: PlanView): string {
-  const trial = plan.trial
-    ? ` First-time subscribers get a ${plan.trial} free trial and aren't charged until it ends.`
-    : '';
-  return `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTHS[plan.id]} auto-renewing subscription at ${plan.price}/${plan.period}, billed by Stripe.${trial} Cancel anytime from the Stripe billing portal linked in your receipt.`;
+  return `${SUBSCRIPTION_TITLE} is a ${SUBSCRIPTION_LENGTHS[plan.id]} auto-renewing subscription at ${plan.price}/${plan.period}, billed by Stripe when you subscribe. Cancel anytime from the Stripe billing portal linked in your receipt.`;
 }
 
 export default function PaywallScreen() {
@@ -174,13 +142,7 @@ export default function PaywallScreen() {
   const plans = isWeb ? WEB_PLANS : nativeList;
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
 
-  const ctaLabel = signedIn
-    ? plan?.trial
-      ? `Start ${plan.trial} free trial`
-      : 'Subscribe'
-    : plan?.trial
-      ? 'Sign in to start your free trial'
-      : 'Sign in to subscribe';
+  const ctaLabel = signedIn ? 'Subscribe' : 'Sign in to subscribe';
 
   // Web: hand off to Stripe Checkout (full-page redirect). On success Stripe returns the browser to
   // PUBLIC_SITE_URL/?checkout=success, where the app refreshes the entitlement and unlocks premium.
@@ -337,7 +299,6 @@ function PlanOption({
   theme: ThemeShape;
 }) {
   const detail = [
-    plan.trial ? `${plan.trial} free trial` : null,
     plan.perMonth ? `${plan.perMonth}/mo` : null,
     plan.period === 'year' ? 'billed yearly' : 'billed monthly',
   ]
@@ -349,7 +310,7 @@ function PlanOption({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${plan.label}, ${plan.price} per ${plan.period}${plan.trial ? `, ${plan.trial} free trial` : ''}`}
+      accessibilityLabel={`${plan.label}, ${plan.price} per ${plan.period}`}
       style={[
         styles.plan,
         {

@@ -101,22 +101,6 @@ export async function getCurrentOffering(): Promise<PurchasesOffering | null> {
   }
 }
 
-/**
- * Which of these products the current Apple ID can still start a free trial on. Apple allows one
- * intro offer per subscription group, so returning subscribers usually can't. Unknown counts as not
- * eligible (RevenueCat's guidance: show the regular price when unsure).
- */
-export async function getTrialEligibility(productIds: string[]): Promise<Record<string, boolean>> {
-  if (!nativeReady || productIds.length === 0) return {};
-  try {
-    const result = await Purchases.checkTrialOrIntroductoryPriceEligibility(productIds);
-    const eligible = Purchases.INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE;
-    return Object.fromEntries(productIds.map((id) => [id, result[id]?.status === eligible]));
-  } catch {
-    return {};
-  }
-}
-
 export type PurchaseOutcome =
   | { status: 'success'; premium: boolean }
   | { status: 'cancelled' }

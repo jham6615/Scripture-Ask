@@ -5,7 +5,7 @@ import { fetchServerEntitlement } from '@/lib/entitlements';
 
 /**
  * Free AI questions before the paywall: one, so a new reader can try it. After that they see the
- * paywall with the free trial. Reading the Bible is always free; only the AI is gated.
+ * paywall. Reading the Bible is always free; only the AI is gated.
  *
  * This local count only decides when to show the paywall. The real gate is server-side
  * (AI_FREE_CHAT_LIMIT in supabase/functions/ai, counted per Supabase user), so for a signed-in account
