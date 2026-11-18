@@ -200,7 +200,7 @@ export default function PaywallScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + Spacing.five }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.kicker, { color: theme.textSecondary }]}>BEACON BIBLE PREMIUM</Text>
+        <Text style={[styles.kicker, { color: theme.textSecondary }]}>BIBLE FOR SEEKERS PREMIUM</Text>
         <Text style={[styles.title, { color: theme.text, fontFamily: Fonts.serif }]}>Go deeper, with no limits.</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Scripture is always free. Premium unlocks the AI study partner, so you can ask about any passage as
@@ -220,7 +220,7 @@ export default function PaywallScreen() {
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.three }]}>
         {!isWeb && !ready ? (
           <Text style={[styles.note, { color: theme.textSecondary }]}>
-            Premium subscriptions are available in the Beacon Bible app on your phone.
+            Premium subscriptions are available in the Bible for Seekers app on your phone.
           </Text>
         ) : loading ? (
           <ActivityIndicator color={theme.text} style={{ paddingVertical: Spacing.three }} />

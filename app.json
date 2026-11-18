@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Beacon Bible",
+    "name": "Bible for Seekers",
     "slug": "bible-friend",
     "version": "1.1.0",
     "orientation": "portrait",
@@ -17,7 +17,7 @@
     "android": {
       "package": "com.shuttlementor.biblefriend",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#8B2724",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"

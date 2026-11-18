@@ -18,5 +18,5 @@ export const EULA_URL = 'https://www.apple.com/legal/internet-services/itunes/de
 export const SUPPORT_URL = 'https://jham6615.github.io/Scripture-Ask/support.html';
 
 /** Display string + lengths used in the auto-renewal disclosure on the paywall. */
-export const SUBSCRIPTION_TITLE = 'Beacon Bible Premium';
+export const SUBSCRIPTION_TITLE = 'Bible for Seekers Premium';
 export const SUBSCRIPTION_LENGTHS = { annual: '1-year', monthly: '1-month' } as const;

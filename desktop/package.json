@@ -1,7 +1,7 @@
 {
   "name": "beacon-bible-desktop",
   "version": "1.0.0",
-  "description": "Beacon Bible desktop app",
+  "description": "Bible for Seekers desktop app",
   "main": "main.js",
   "author": "Jungho Ham",
   "license": "UNLICENSED",
@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.shuttlementor.biblefriend",
-    "productName": "Beacon Bible",
+    "productName": "Bible for Seekers",
     "directories": {
       "output": "dist",
       "buildResources": "build"
