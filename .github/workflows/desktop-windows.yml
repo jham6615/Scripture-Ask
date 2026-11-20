@@ -1,6 +1,6 @@
 name: Build Windows Desktop
 
-# Builds the Windows .exe installer for the Bible for Seekers desktop app on a native Windows runner
+# Builds the Windows .exe installer for the Easy Bible desktop app on a native Windows runner
 # (no Wine needed). Run it manually from the Actions tab, or by pushing a tag like `desktop-v1.0.0`.
 # The installer is uploaded as a downloadable artifact on the run. It's unsigned for now, so Windows
 # SmartScreen will warn on first launch ("More info" -> "Run anyway"); add a code-signing cert later.
