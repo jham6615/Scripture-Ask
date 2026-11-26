@@ -62,6 +62,13 @@ export function configureRevenueCat(): void {
   try {
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
     Purchases.configure({ apiKey: key });
+    // Apple Ads attribution: hand RevenueCat the AdServices token so a subscription can be traced back
+    // to the Apple Ads campaign and keyword that brought the install (shown in RevenueCat once the
+    // Apple Search Ads integration is turned on there). Uses Apple's AdServices framework, so no
+    // tracking (ATT) prompt is needed. iOS only.
+    if (Platform.OS === 'ios') {
+      Purchases.enableAdServicesAttributionTokenCollection().catch(() => {});
+    }
     // Keep the local cache in lockstep with RevenueCat (renewals, expirations, restores, other devices).
     Purchases.addCustomerInfoUpdateListener(syncStore);
     // Pull once now in case no event fires (e.g. unchanged status on a cold start).
